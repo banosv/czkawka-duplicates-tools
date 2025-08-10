@@ -1,0 +1,856 @@
+' ============================================================================
+' CZKAWKA DUPLICATE FILE ANALYSIS - LIBREOFFICE CALC MACRO MODULE
+' ============================================================================
+' 
+' DESCRIPTION:
+' This module provides file manager integration and decision marking for 
+' Czkawka duplicate analysis CSV data. Designed for 6+3 column structure:
+' B=OrigPath, C=OrigFile, D=DupPath, E=DupFile, F=Size, G=Hash
+' H=Keep_Original, I=Keep_Duplicate, J=Action
+'
+' FEATURES:
+' - Dual-pane file manager integration (Krusader, Nemo)
+' - Quick decision marking with color coding
+' - Automatic cursor advancement for efficient workflow
+' - Decision statistics and clearing functions
+' - Support for external launch_krusader.sh script
+' - Protected rows: Row 1 (subtotals) and Row 2 (headers) are protected
+'
+' SETUP:
+' 1. Enable macros: Tools → Options → Security → Macro Security (Medium)
+' 2. Assign keyboard shortcuts: Tools → Customize → Keyboard
+'    F3: OpenInFileManagerFromActiveCell
+'    ctrl+3: MarkKeepOriginal, ctrl+4: MarkKeepDuplicate, ctrl+6: MarkNeedsReview
+' 3. Install file managers: sudo apt install nemo krusader
+'
+' Author: Enhanced for Czkawka project
+' Date: August 2025
+' ============================================================================
+
+' MAIN FILE MANAGER INTEGRATION
+' ============================================================================
+
+Sub OpenInFileManagerFromActiveCell()
+    ' Opens both original and duplicate file locations in file manager
+    ' Supports Krusader (dual-pane), Nemo (tabs), and fallback options
+    ' PROTECTED: Rows 1 (subtotals) and 2 (headers) are protected from file operations
+    
+    Dim currentRow As Long
+    Dim currentCol As Long
+    Dim leftPath As String, leftFile As String
+    Dim rightPath As String, rightFile As String
+    Dim sheet As Object
+    
+    ' Get the active sheet and cell position
+    sheet = ThisComponent.getCurrentController().getActiveSheet()
+    currentRow = ThisComponent.getCurrentController().getSelection().getRangeAddress().StartRow + 1
+    currentCol = ThisComponent.getCurrentController().getSelection().getRangeAddress().StartColumn + 1
+    
+    ' Check if we're on protected rows (rows 1-2) - no file operations on protected rows
+    If currentRow <= 2 Then
+        MsgBox("Cannot open files from protected rows." & Chr(10) & Chr(10) & _
+               "Row 1: Reserved for subtotals" & Chr(10) & _
+               "Row 2: Reserved for headers" & Chr(10) & Chr(10) & _
+               "Please select a data row (row 3 or below) to open files.", 48, "Czkawka Tools - Protected Rows")
+        Exit Sub
+    End If
+    
+    ' Get all four values from the current row (B=OrigPath, C=OrigFile, D=DupPath, E=DupFile)
+    leftPath = sheet.getCellByPosition(1, currentRow - 1).getString()   ' Column B
+    leftFile = sheet.getCellByPosition(2, currentRow - 1).getString()   ' Column C  
+    rightPath = sheet.getCellByPosition(3, currentRow - 1).getString()  ' Column D
+    rightFile = sheet.getCellByPosition(4, currentRow - 1).getString()  ' Column E
+    
+    ' Validate that we have complete data for both files
+    If leftPath = "" Or leftFile = "" Or rightPath = "" Or rightFile = "" Then
+        MsgBox("Missing path or filename data in row " & currentRow & Chr(10) & Chr(10) & _
+               "Required columns:" & Chr(10) & _
+               "B: Original folder path" & Chr(10) & _ 
+               "C: Original filename" & Chr(10) & _
+               "D: Duplicate folder path" & Chr(10) & _
+               "E: Duplicate filename", 48, "Czkawka Tools - Data Error")
+        Exit Sub
+    End If
+    
+    ' Try file managers in order of preference for best user experience
+    
+    ' 1st choice: Nemo with tab support (good file selection capabilities)
+    If LaunchNemoDevPanes(leftPath, rightPath, leftFile, rightFile) Then
+        Exit Sub
+    End If
+    
+    ' 2nd choice: Krusader with dual-pane view (excellent for comparisons)
+    If LaunchKrusader(leftPath, rightPath, leftFile, rightFile) Then
+        Exit Sub
+    End If
+    
+    ' Final fallback: Open both locations in separate windows using system default
+    LaunchSeparateWindows(leftPath, rightPath, leftFile, rightFile)
+End Sub
+
+' FILE MANAGER LAUNCH FUNCTIONS
+' ============================================================================
+
+Function LaunchKrusader(leftPath As String, rightPath As String, leftFile As String, rightFile As String) As Boolean
+    ' Launches Krusader file manager with dual-pane view
+    ' Uses external launch_krusader.sh script if available, falls back to direct command
+    
+    On Error GoTo KrusaderError
+    Dim command As String
+
+    ' Try to use the external launch script first (keeps paths organized)
+    ' Update path to match your installation: /home/banos/opt/czkawka-cli/launch_krusader.sh
+    command = "/home/banos/opt/czkawka-cli/launch_krusader.sh " & leftPath & " " & rightPath
+    
+    ' Launch Krusader via script - this provides dual-pane with proper path setup
+    Shell(command, 1)
+
+    '** 'To revive the following code block remove only the outer comments '** 
+    '** ' Wait a moment for Krusader to load, then show guidance message
+    '** Wait(2000)  ' Wait 2 seconds
+    '** 
+    '** ' Note: Krusader doesn't have direct file selection via command line
+    '** ' User will need to manually navigate to the files
+    '** MsgBox("Krusader opened with:" & Chr(10) & _
+    '**        "Left: " & leftPath & Chr(10) & _
+    '**        "Right: " & rightPath & Chr(10) & Chr(10) & _
+    '**        "Navigate to:" & Chr(10) & _
+    '**        "Left: " & leftFile & Chr(10) & _
+    '**        "Right: " & rightFile, 64, "Files Opened in Krusader")
+  
+    LaunchKrusader = True
+    Exit Function
+
+KrusaderError:
+    ' If external script fails, try direct Krusader command
+    On Error GoTo KrusaderDirectError
+    command = "krusader --left=""" & leftPath & """ --right=""" & rightPath & """"
+    Shell(command, 1)
+    LaunchKrusader = True
+    Exit Function
+    
+KrusaderDirectError:
+    ' Krusader not available or command failed
+    LaunchKrusader = False
+End Function
+
+Function LaunchNemoDevPanes(leftPath As String, rightPath As String, leftFile As String, rightFile As String) As Boolean
+    ' Launches Nemo file manager with both locations in separate tabs
+    ' Attempts to open specific files directly for easier identification
+    
+    On Error GoTo NemoError
+    Dim command As String
+    
+    ' Launch Nemo with both file paths - this opens tabs and selects the files
+    command = "nemo -t """ & leftPath & "/" & leftFile & """ """ & rightPath & "/" & rightFile & """"
+    Shell(command, 1)
+    
+    '** 'To revive the following code block remove only the outer comments '** 
+    '** MsgBox("Nemo opened with both locations:" & Chr(10) & _
+    '**        "Left location: " & leftPath & Chr(10) & _
+    '**        "Right location: " & rightPath & Chr(10) & Chr(10) & _
+    '**        "Look for:" & Chr(10) & _
+    '**        "Left file: " & leftFile & Chr(10) & _
+    '**        "Right file: " & rightFile, 64, "Files Opened in Nemo")
+    
+    LaunchNemoDevPanes = True
+    Exit Function
+    
+NemoError:
+    ' Nemo not available or command failed
+    LaunchNemoDevPanes = False
+End Function
+
+Sub LaunchSeparateWindows(leftPath As String, rightPath As String, leftFile As String, rightFile As String)
+    ' Final fallback: opens both file locations in separate file manager windows
+    ' Uses system default file manager via xdg-open for maximum compatibility
+    
+    Dim leftCommand As String, rightCommand As String
+    Dim leftFullPath As String, rightFullPath As String
+    
+    ' Construct full file paths for direct file access
+    leftFullPath = leftPath & "/" & leftFile
+    rightFullPath = rightPath & "/" & rightFile
+    
+    ' Try to open the specific files first, fall back to folders if that fails
+    On Error GoTo FallbackToFolders
+    
+    ' Open both files directly using system default file manager
+    leftCommand = "nemo """ & leftFullPath & """"
+    rightCommand = "nemo """ & rightFullPath & """"
+    
+    Shell(leftCommand, 1)
+    Wait(1000)  ' Wait 1 second between launches to avoid overwhelming the system
+    Shell(rightCommand, 1)
+    
+    MsgBox("Opened both files in separate windows:" & Chr(10) & _
+           "Original: " & leftFullPath & Chr(10) & _
+           "Duplicate: " & rightFullPath & Chr(10) & Chr(10) & _
+           "Compare these files to decide which to keep.", 64, "Files Opened for Comparison")
+    Exit Sub
+    
+FallbackToFolders:
+    ' If direct file opening fails, open the containing folders
+    Shell("xdg-open """ & leftPath & """", 1)
+    Wait(1500)
+    Shell("xdg-open """ & rightPath & """", 1)
+    
+    MsgBox("Opened both folders in separate windows:" & Chr(10) & _
+           "Original folder: " & leftPath & Chr(10) & _
+           "Duplicate folder: " & rightPath & Chr(10) & Chr(10) & _
+           "Look for files:" & Chr(10) & _
+           "Original: " & leftFile & Chr(10) & _
+           "Duplicate: " & rightFile, 64, "Folders Opened")
+End Sub
+
+' DECISION MARKING FUNCTIONS WITH PROTECTED ROWS 1 & 2
+' ============================================================================
+
+Sub MarkKeepOriginal()
+    ' Marks decision to keep the original file (columns B&C) and delete duplicate (columns D&E)
+    ' Updates columns H=YES, I=NO, J=DELETE_DUPLICATE with visual color coding
+    ' PROTECTED: Does not operate on rows 1 (subtotals) or 2 (headers)
+    
+    Dim sheet As Object
+    Dim currentRow As Long
+    Dim cellG As Object, cellH As Object
+    
+    sheet = ThisComponent.getCurrentController().getActiveSheet()
+    currentRow = ThisComponent.getCurrentController().getSelection().getRangeAddress().StartRow
+    
+    ' Protected rows check - prevent operations on rows 1-2 (0-1 in 0-based indexing)
+    If currentRow <= 1 Then
+        MsgBox("Cannot mark decisions on protected rows." & Chr(10) & Chr(10) & _
+               "Row 1: Reserved for subtotals" & Chr(10) & _
+               "Row 2: Reserved for headers" & Chr(10) & Chr(10) & _
+               "Please select a data row (row 3 or below) to mark decisions.", 48, "Czkawka Tools - Protected Rows")
+        Exit Sub
+    End If
+    
+    ' Set decision values (H=Keep_Original, I=Keep_Duplicate, J=Action)
+    sheet.getCellByPosition(7, currentRow).setString("YES")              ' Column H: Keep original
+    sheet.getCellByPosition(8, currentRow).setString("NO")               ' Column I: Don't keep duplicate
+    sheet.getCellByPosition(9, currentRow).setString("DELETE_DUPLICATE") ' Column J: Action to take
+    
+    ' Apply visual color coding for immediate feedback - FIXED METHOD
+    cellG = sheet.getCellByPosition(7, currentRow)
+    cellH = sheet.getCellByPosition(8, currentRow)
+    
+    cellG.setPropertyValue("CellBackColor", RGB(144, 238, 144)) ' Light green (keep)
+    cellH.setPropertyValue("CellBackColor", RGB(255, 182, 193)) ' Light red (delete)
+    
+    ' Move to next row for efficient workflow
+    MoveToNextRow()
+End Sub
+
+Sub MarkKeepDuplicate()
+    ' Marks decision to keep the duplicate file (columns D&E) and delete original (columns B&C)
+    ' Updates columns H=NO, I=YES, J=DELETE_ORIGINAL with visual color coding
+    ' PROTECTED: Does not operate on rows 1 (subtotals) or 2 (headers)
+    
+    Dim sheet As Object
+    Dim currentRow As Long
+    Dim cellG As Object, cellH As Object
+    
+    sheet = ThisComponent.getCurrentController().getActiveSheet()
+    currentRow = ThisComponent.getCurrentController().getSelection().getRangeAddress().StartRow
+    
+    ' Protected rows check - prevent operations on rows 1-2 (0-1 in 0-based indexing)
+    If currentRow <= 1 Then
+        MsgBox("Cannot mark decisions on protected rows." & Chr(10) & Chr(10) & _
+               "Row 1: Reserved for subtotals" & Chr(10) & _
+               "Row 2: Reserved for headers" & Chr(10) & Chr(10) & _
+               "Please select a data row (row 3 or below) to mark decisions.", 48, "Czkawka Tools - Protected Rows")
+        Exit Sub
+    End If
+    
+    ' Set decision values - opposite of MarkKeepOriginal
+    sheet.getCellByPosition(7, currentRow).setString("NO")               ' Column H: Don't keep original
+    sheet.getCellByPosition(8, currentRow).setString("YES")              ' Column I: Keep duplicate
+    sheet.getCellByPosition(9, currentRow).setString("DELETE_ORIGINAL")  ' Column J: Action to take
+    
+    ' Apply visual color coding - FIXED METHOD
+    cellG = sheet.getCellByPosition(7, currentRow)
+    cellH = sheet.getCellByPosition(8, currentRow)
+    
+    cellG.setPropertyValue("CellBackColor", RGB(255, 182, 193)) ' Light red (delete)
+    cellH.setPropertyValue("CellBackColor", RGB(144, 238, 144)) ' Light green (keep)
+    
+    ' Move to next row for efficient workflow
+    MoveToNextRow()
+End Sub
+
+Sub MarkDeleteBoth()
+    ' Marks decision to delete both the original and duplicate files
+    ' Updates columns H=NO, I=NO, J=DELETE_BOTH with visual color coding
+    ' Use with caution - this removes both copies of the file
+    ' PROTECTED: Does not operate on rows 1 (subtotals) or 2 (headers)
+    
+    Dim sheet As Object
+    Dim currentRow As Long
+    Dim cellG As Object, cellH As Object
+    
+    sheet = ThisComponent.getCurrentController().getActiveSheet()
+    currentRow = ThisComponent.getCurrentController().getSelection().getRangeAddress().StartRow
+    
+    ' Protected rows check - prevent operations on rows 1-2 (0-1 in 0-based indexing)
+    If currentRow <= 1 Then
+        MsgBox("Cannot mark decisions on protected rows." & Chr(10) & Chr(10) & _
+               "Row 1: Reserved for subtotals" & Chr(10) & _
+               "Row 2: Reserved for headers" & Chr(10) & Chr(10) & _
+               "Please select a data row (row 3 or below) to mark decisions.", 48, "Czkawka Tools - Protected Rows")
+        Exit Sub
+    End If
+    
+    ' Set both files to be deleted (rare case - use when neither copy is wanted)
+    sheet.getCellByPosition(7, currentRow).setString("NO")           ' Column H: Don't keep original
+    sheet.getCellByPosition(8, currentRow).setString("NO")           ' Column I: Don't keep duplicate
+    sheet.getCellByPosition(9, currentRow).setString("DELETE_BOTH")  ' Column J: Delete both files
+    
+    ' Apply red color coding to both columns (warning: both will be deleted) - FIXED METHOD
+    cellG = sheet.getCellByPosition(7, currentRow)
+    cellH = sheet.getCellByPosition(8, currentRow)
+    
+    cellG.setPropertyValue("CellBackColor", RGB(255, 182, 193)) ' Light red
+    cellH.setPropertyValue("CellBackColor", RGB(255, 182, 193)) ' Light red
+    
+    ' Move to next row for efficient workflow
+    MoveToNextRow()
+End Sub
+
+Sub MarkNeedsReview()
+    ' Marks files that need additional review before making a decision
+    ' Updates columns H=REVIEW, I=REVIEW, J=REVIEW_NEEDED with visual color coding
+    ' Useful for complex cases that require more analysis
+    ' PROTECTED: Does not operate on rows 1 (subtotals) or 2 (headers)
+    
+    Dim sheet As Object
+    Dim currentRow As Long
+    Dim cellG As Object, cellH As Object
+    
+    sheet = ThisComponent.getCurrentController().getActiveSheet()
+    currentRow = ThisComponent.getCurrentController().getSelection().getRangeAddress().StartRow
+    
+    ' Protected rows check - prevent operations on rows 1-2 (0-1 in 0-based indexing)
+    If currentRow <= 1 Then
+        MsgBox("Cannot mark decisions on protected rows." & Chr(10) & Chr(10) & _
+               "Row 1: Reserved for subtotals" & Chr(10) & _
+               "Row 2: Reserved for headers" & Chr(10) & Chr(10) & _
+               "Please select a data row (row 3 or below) to mark decisions.", 48, "Czkawka Tools - Protected Rows")
+        Exit Sub
+    End If
+    
+    ' Mark for later review
+    sheet.getCellByPosition(7, currentRow).setString("REVIEW")        ' Column H: Needs review
+    sheet.getCellByPosition(8, currentRow).setString("REVIEW")        ' Column I: Needs review
+    sheet.getCellByPosition(9, currentRow).setString("REVIEW_NEEDED") ' Column J: Action needed
+    
+    ' Apply yellow color coding to indicate "needs attention" - FIXED METHOD
+    cellG = sheet.getCellByPosition(7, currentRow)
+    cellH = sheet.getCellByPosition(8, currentRow)
+    
+    cellG.setPropertyValue("CellBackColor", RGB(255, 255, 180)) ' Light yellow
+    cellH.setPropertyValue("CellBackColor", RGB(255, 255, 180)) ' Light yellow
+    
+    ' Move to next row for efficient workflow
+    MoveToNextRow()
+End Sub
+
+' SOFT LINK FUNCTIONS
+' ============================================================================
+
+Sub MarkSoftLinkOriginal()
+    ' Marks decision to keep the original file and soft link the duplicate to it
+    ' Updates columns H=YES, I=LINK, J=SOFTLINK_DUPLICATE with visual color coding
+    ' PROTECTED: Does not operate on rows 1 (subtotals) or 2 (headers)
+    
+    Dim sheet As Object
+    Dim currentRow As Long
+    Dim cellG As Object, cellH As Object
+    
+    sheet = ThisComponent.getCurrentController().getActiveSheet()
+    currentRow = ThisComponent.getCurrentController().getSelection().getRangeAddress().StartRow
+    
+    ' Protected rows check - prevent operations on rows 1-2 (0-1 in 0-based indexing)
+    If currentRow <= 1 Then
+        MsgBox("Cannot mark decisions on protected rows." & Chr(10) & Chr(10) & _
+               "Row 1: Reserved for subtotals" & Chr(10) & _
+               "Row 2: Reserved for headers" & Chr(10) & Chr(10) & _
+               "Please select a data row (row 3 or below) to mark decisions.", 48, "Czkawka Tools - Protected Rows")
+        Exit Sub
+    End If
+    
+    ' Set decision values (H=Keep_Original, I=Keep_Duplicate, J=Action)
+    sheet.getCellByPosition(7, currentRow).setString("YES")              ' Column H: Keep original
+    sheet.getCellByPosition(8, currentRow).setString("LINK")             ' Column I: Soft link duplicate
+    sheet.getCellByPosition(9, currentRow).setString("SOFTLINK_DUPLICATE") ' Column J: Action to take
+    
+    ' Apply visual color coding for immediate feedback
+    cellG = sheet.getCellByPosition(7, currentRow)
+    cellH = sheet.getCellByPosition(8, currentRow)
+    
+    cellG.setPropertyValue("CellBackColor", RGB(144, 238, 144)) ' Light green (keep)
+    cellH.setPropertyValue("CellBackColor", RGB(173, 216, 230)) ' Light blue (link)
+    
+    ' Move to next row for efficient workflow
+    MoveToNextRow()
+End Sub
+
+Sub MarkSoftLinkDuplicate()
+    ' Marks decision to keep the duplicate file and soft link the original to it
+    ' Updates columns H=LINK, I=YES, J=SOFTLINK_ORIGINAL with visual color coding
+    ' PROTECTED: Does not operate on rows 1 (subtotals) or 2 (headers)
+    
+    Dim sheet As Object
+    Dim currentRow As Long
+    Dim cellG As Object, cellH As Object
+    
+    sheet = ThisComponent.getCurrentController().getActiveSheet()
+    currentRow = ThisComponent.getCurrentController().getSelection().getRangeAddress().StartRow
+    
+    ' Protected rows check - prevent operations on rows 1-2 (0-1 in 0-based indexing)
+    If currentRow <= 1 Then
+        MsgBox("Cannot mark decisions on protected rows." & Chr(10) & Chr(10) & _
+               "Row 1: Reserved for subtotals" & Chr(10) & _
+               "Row 2: Reserved for headers" & Chr(10) & Chr(10) & _
+               "Please select a data row (row 3 or below) to mark decisions.", 48, "Czkawka Tools - Protected Rows")
+        Exit Sub
+    End If
+    
+    ' Set decision values - opposite of MarkSoftLinkOriginal
+    sheet.getCellByPosition(7, currentRow).setString("LINK")             ' Column H: Soft link original
+    sheet.getCellByPosition(8, currentRow).setString("YES")              ' Column I: Keep duplicate
+    sheet.getCellByPosition(9, currentRow).setString("SOFTLINK_ORIGINAL") ' Column J: Action to take
+    
+    ' Apply visual color coding
+    cellG = sheet.getCellByPosition(7, currentRow)
+    cellH = sheet.getCellByPosition(8, currentRow)
+    
+    cellG.setPropertyValue("CellBackColor", RGB(173, 216, 230)) ' Light blue (link)
+    cellH.setPropertyValue("CellBackColor", RGB(144, 238, 144)) ' Light green (keep)
+    
+    ' Move to next row for efficient workflow
+    MoveToNextRow()
+End Sub
+
+' HARD LINK FUNCTIONS
+' ============================================================================
+
+Sub MarkHardLinkOriginal()
+    ' Marks decision to keep the original file and hard link the duplicate to it
+    ' Updates columns H=YES, I=LINK, J=HARDLINK_DUPLICATE with visual color coding
+    ' PROTECTED: Does not operate on rows 1 (subtotals) or 2 (headers)
+    
+    Dim sheet As Object
+    Dim currentRow As Long
+    Dim cellG As Object, cellH As Object
+    
+    sheet = ThisComponent.getCurrentController().getActiveSheet()
+    currentRow = ThisComponent.getCurrentController().getSelection().getRangeAddress().StartRow
+    
+    ' Protected rows check - prevent operations on rows 1-2 (0-1 in 0-based indexing)
+    If currentRow <= 1 Then
+        MsgBox("Cannot mark decisions on protected rows." & Chr(10) & Chr(10) & _
+               "Row 1: Reserved for subtotals" & Chr(10) & _
+               "Row 2: Reserved for headers" & Chr(10) & Chr(10) & _
+               "Please select a data row (row 3 or below) to mark decisions.", 48, "Czkawka Tools - Protected Rows")
+        Exit Sub
+    End If
+    
+    ' Set decision values (H=Keep_Original, I=Keep_Duplicate, J=Action)
+    sheet.getCellByPosition(7, currentRow).setString("YES")              ' Column H: Keep original
+    sheet.getCellByPosition(8, currentRow).setString("LINK")             ' Column I: Hard link duplicate
+    sheet.getCellByPosition(9, currentRow).setString("HARDLINK_DUPLICATE") ' Column J: Action to take
+    
+    ' Apply visual color coding for immediate feedback
+    cellG = sheet.getCellByPosition(7, currentRow)
+    cellH = sheet.getCellByPosition(8, currentRow)
+    
+    cellG.setPropertyValue("CellBackColor", RGB(144, 238, 144)) ' Light green (keep)
+    cellH.setPropertyValue("CellBackColor", RGB(176, 224, 230)) ' Light teal (hard link)
+    
+    ' Move to next row for efficient workflow
+    MoveToNextRow()
+End Sub
+
+Sub MarkHardLinkDuplicate()
+    ' Marks decision to keep the duplicate file and hard link the original to it
+    ' Updates columns H=LINK, I=YES, J=HARDLINK_ORIGINAL with visual color coding
+    ' PROTECTED: Does not operate on rows 1 (subtotals) or 2 (headers)
+    
+    Dim sheet As Object
+    Dim currentRow As Long
+    Dim cellG As Object, cellH As Object
+    
+    sheet = ThisComponent.getCurrentController().getActiveSheet()
+    currentRow = ThisComponent.getCurrentController().getSelection().getRangeAddress().StartRow
+    
+    ' Protected rows check - prevent operations on rows 1-2 (0-1 in 0-based indexing)
+    If currentRow <= 1 Then
+        MsgBox("Cannot mark decisions on protected rows." & Chr(10) & Chr(10) & _
+               "Row 1: Reserved for subtotals" & Chr(10) & _
+               "Row 2: Reserved for headers" & Chr(10) & Chr(10) & _
+               "Please select a data row (row 3 or below) to mark decisions.", 48, "Czkawka Tools - Protected Rows")
+        Exit Sub
+    End If
+    
+    ' Set decision values - opposite of MarkHardLinkOriginal
+    sheet.getCellByPosition(7, currentRow).setString("LINK")             ' Column H: Hard link original
+    sheet.getCellByPosition(8, currentRow).setString("YES")              ' Column I: Keep duplicate
+    sheet.getCellByPosition(9, currentRow).setString("HARDLINK_ORIGINAL") ' Column J: Action to take
+    
+    ' Apply visual color coding
+    cellG = sheet.getCellByPosition(7, currentRow)
+    cellH = sheet.getCellByPosition(8, currentRow)
+    
+    cellG.setPropertyValue("CellBackColor", RGB(176, 224, 230)) ' Light teal (hard link)
+    cellH.setPropertyValue("CellBackColor", RGB(144, 238, 144)) ' Light green (keep)
+    
+    ' Move to next row for efficient workflow
+    MoveToNextRow()
+End Sub
+
+' UTILITY AND WORKFLOW FUNCTIONS
+' ============================================================================
+
+Sub MoveToNextRow()
+    ' Helper function to automatically advance cursor to next row after marking decision
+    ' Improves workflow efficiency by eliminating manual cursor movement
+    ' PROTECTED: Ensures movement starts from data rows (not protected rows 1-2)
+    
+    Dim oSheet As Object
+    Dim oController As Object
+    Dim currentRow As Long
+    Dim targetRow As Long
+    
+    oController = ThisComponent.getCurrentController()
+    oSheet = oController.getActiveSheet()
+    currentRow = oController.getSelection().getRangeAddress().StartRow
+    
+    ' Calculate target row - ensure we don't move to or above protected rows
+    targetRow = currentRow + 1
+    If targetRow <= 1 Then targetRow = 2  ' Minimum is row 3 (index 2)
+    
+    ' Move cursor to first data column (B) of next row for consistent positioning
+    oController.select(oSheet.getCellByPosition(1, targetRow))
+End Sub
+
+Sub ClearDecisions()
+    ' Clears all decision markings (columns H, I, J) for selected range of rows
+    ' Also resets color formatting to default
+    ' Useful for bulk reset operations or correcting mistakes
+    ' PROTECTED: Does not clear rows 1 (subtotals) or 2 (headers) even if selected
+    
+    Dim sheet As Object
+    Dim selection As Object
+    Dim currentRow As Long, endRow As Long
+    Dim i As Long
+    Dim cellG As Object, cellH As Object
+    Dim processedRows As Long
+    
+    sheet = ThisComponent.getCurrentController().getActiveSheet()
+    selection = ThisComponent.getCurrentController().getSelection()
+    currentRow = selection.getRangeAddress().StartRow
+    endRow = selection.getRangeAddress().EndRow
+    processedRows = 0
+    
+    ' Clear decision data and formatting for all selected rows (except protected rows 1-2)
+    For i = currentRow To endRow
+        ' Skip protected rows (rows 0-1 in 0-based indexing) - protect subtotals and headers
+        If i > 1 Then
+            ' Clear decision columns H, I, J
+            sheet.getCellByPosition(7, i).setString("")  ' Clear Keep_Original
+            sheet.getCellByPosition(8, i).setString("")  ' Clear Keep_Duplicate
+            sheet.getCellByPosition(9, i).setString("")  ' Clear Action
+            
+            ' Reset background colors to default (no color) - FIXED METHOD
+            cellG = sheet.getCellByPosition(7, i)
+            cellH = sheet.getCellByPosition(8, i)
+            
+            cellG.setPropertyValue("CellBackColor", -1)  ' -1 = no color/transparent
+            cellH.setPropertyValue("CellBackColor", -1)
+            
+            processedRows = processedRows + 1
+        End If
+    Next i
+    
+    ' Provide feedback on operation completed
+    If processedRows > 0 Then
+        MsgBox("Cleared decisions for " & processedRows & " data rows" & Chr(10) & Chr(10) & _
+               "Rows " & (currentRow + 1) & " to " & (endRow + 1) & " have been reset." & Chr(10) & _
+               "(Protected rows 1-2 were not modified)", 64, "Czkawka Tools - Decisions Cleared")
+    Else
+        MsgBox("No data rows were selected for clearing." & Chr(10) & Chr(10) & _
+               "Rows 1-2 are protected and cannot be cleared." & Chr(10) & _
+               "Please select data rows (row 3 or below) to clear decisions.", 48, "Czkawka Tools - No Changes Made")
+    End If
+End Sub
+
+Sub ShowStatistics()
+    ' Displays summary statistics of all decision markings in the current sheet
+    ' Helps track progress and review decision patterns
+    ' PROTECTED: Excludes protected rows 1-2 from statistics calculation
+    
+    Dim sheet As Object
+    Dim lastRow As Long
+    Dim keepOrig As Long, keepDup As Long, deleteBoth As Long, needReview As Long, unprocessed As Long
+    Dim i As Long
+    Dim action As String
+    Dim totalDataRows As Long
+    
+    sheet = ThisComponent.getCurrentController().getActiveSheet()
+    
+    ' Find the last row with data - SIMPLIFIED METHOD
+    ' Check from row 3 downward (skip protected rows 1-2) until we find an empty Action column (column J)
+    lastRow = 2  ' Start from row 3 (index 2)
+    Do While sheet.getCellByPosition(9, lastRow).getString() <> "" Or sheet.getCellByPosition(1, lastRow).getString() <> ""
+        lastRow = lastRow + 1
+        If lastRow > 10000 Then Exit Do ' Safety limit
+    Loop
+    lastRow = lastRow - 1 ' Go back to last non-empty row
+    
+    ' Calculate total data rows (excluding protected rows 1-2)
+    totalDataRows = lastRow - 1 ' Since we start counting from row 3 (index 2)
+    If totalDataRows < 1 Then totalDataRows = 0 ' No data rows found
+    
+    ' Count different types of decisions by examining Action column (J)
+    ' Start from index 2 (row 3) to skip protected rows 1-2
+    For i = 2 To lastRow
+        action = sheet.getCellByPosition(9, i).getString() ' Column J (Action)
+        Select Case action
+            Case "DELETE_DUPLICATE"
+                keepOrig = keepOrig + 1
+            Case "DELETE_ORIGINAL"  
+                keepDup = keepDup + 1
+            Case "DELETE_BOTH"
+                deleteBoth = deleteBoth + 1
+            Case "REVIEW_NEEDED"
+                needReview = needReview + 1
+            Case ""
+                unprocessed = unprocessed + 1
+        End Select
+    Next i
+    
+    ' Calculate completion percentage
+    Dim processedRows As Long
+    Dim completionPercent As Long
+    processedRows = keepOrig + keepDup + deleteBoth + needReview
+    If totalDataRows > 0 Then
+        completionPercent = Int((processedRows / totalDataRows) * 100)
+    Else
+        completionPercent = 0
+    End If
+    
+    ' Display comprehensive statistics
+    MsgBox("CZKAWKA DUPLICATE ANALYSIS STATISTICS" & Chr(10) & _
+           "===========================================" & Chr(10) & Chr(10) & _
+           "DECISIONS MADE:" & Chr(10) & _
+           "Keep Original (delete duplicate): " & keepOrig & Chr(10) & _
+           "Keep Duplicate (delete original): " & keepDup & Chr(10) & _
+           "Delete Both Files: " & deleteBoth & Chr(10) & _
+           "Need Review: " & needReview & Chr(10) & Chr(10) & _
+           "PROGRESS:" & Chr(10) & _
+           "Processed: " & processedRows & " rows" & Chr(10) & _
+           "Unprocessed: " & unprocessed & " rows" & Chr(10) & _
+           "Total: " & totalDataRows & " duplicate relationships" & Chr(10) & _
+           "Completion: " & completionPercent & "%" & Chr(10) & Chr(10) & _
+           "NEXT STEPS:" & Chr(10) & _
+           "- Filter by Action column to review cleanup plan" & Chr(10) & _
+           "- Address items marked 'REVIEW_NEEDED'" & Chr(10) & _
+           "- Export decisions for automated cleanup" & Chr(10) & Chr(10) & _
+           "Note: Protected rows 1-2 are excluded from statistics.", 64, "Duplicate Analysis Progress")
+End Sub
+
+Sub FilterByAction()
+    ' Applies AutoFilter to the Action column (I) for easy filtering of decisions
+    ' Enables quick viewing of specific decision types (e.g., only files to delete)
+    ' PROTECTED: Filter includes headers from row 2 for proper column labeling
+    
+    Dim sheet As Object
+    Dim dataRange As Object
+    Dim lastRow As Long
+    
+    sheet = ThisComponent.getCurrentController().getActiveSheet()
+    
+    ' Find last row with data - SIMPLIFIED METHOD
+    ' Check from row 3 downward until we find an empty Action column
+    lastRow = 2
+    Do While sheet.getCellByPosition(8, lastRow).getString() <> "" Or sheet.getCellByPosition(0, lastRow).getString() <> ""
+        lastRow = lastRow + 1
+        If lastRow > 10000 Then Exit Do ' Safety limit
+    Loop
+    lastRow = lastRow - 1 ' Go back to last non-empty row
+    
+    If lastRow < 2 Then lastRow = 2 ' Ensure we have at least headers + one data row
+    
+    ' Get the data range starting from row 2 (headers) for proper AutoFilter setup
+    dataRange = sheet.getCellRangeByPosition(0, 1, 8, lastRow)  ' Row 2 (index 1) to lastRow
+    
+    ' Try to apply AutoFilter
+    On Error GoTo FilterError
+    dataRange.AutoFilter = True
+    
+    MsgBox("AutoFilter applied to data range (rows 2-" & (lastRow + 1) & ")." & Chr(10) & Chr(10) & _
+           "Click dropdown arrows in header row (row 2) to filter by:" & Chr(10) & _
+           "- Action types (DELETE_DUPLICATE, DELETE_ORIGINAL, etc.)" & Chr(10) & _
+           "- File sizes, folder paths, or any other column" & Chr(10) & Chr(10) & _
+           "Use this to review your cleanup plan before execution." & Chr(10) & Chr(10) & _
+           "Note: Row 1 (subtotals) and Row 2 (headers) are protected.", 64, "Czkawka Tools - Filter Applied")
+    Exit Sub
+    
+FilterError:
+    ' If AutoFilter fails, just optimize column widths
+    dataRange.getColumns().setPropertyValue("OptimalWidth", True)
+    MsgBox("Applied optimal column widths to data range." & Chr(10) & Chr(10) & _
+           "AutoFilter may need to be applied manually via:" & Chr(10) & _
+           "Data → AutoFilter menu option", 48, "Czkawka Tools - Partial Success")
+End Sub
+
+Sub ToggleFilterByActiveCell()
+    Dim oSheet As Object
+    Dim oRange As Object
+    Dim oActiveCell As Object
+    Dim sFilterValue As String
+    Dim nColumn As Integer
+    Dim oFilterDesc As Object
+    Dim oCellA1 As Object
+    
+    ' Get the active sheet and cell
+    oSheet = ThisComponent.getCurrentController().getActiveSheet()
+    oRange = oSheet.getCellRangeByName("data")
+    oActiveCell = ThisComponent.getCurrentController().getSelection()
+    oCellA1 = oSheet.getCellByPosition(0, 0)  ' A1 cell
+    
+    ' Check if a single cell is selected
+    If oActiveCell.getImplementationName() <> "ScCellObj" Then
+        Exit Sub
+    End If
+    
+    ' Get the column number and filter value
+    nColumn = oActiveCell.getCellAddress().Column
+    sFilterValue = oActiveCell.getString()
+    
+    ' Check if the active cell is in the filter range and has content
+    If nColumn < 1 Or nColumn > 10 Or sFilterValue = "" Then
+        Exit Sub
+    End If
+    
+    ' Check A1 for filter state (any non-empty value means filter is active)
+    If oCellA1.getString() <> "" Then
+        ' Filter is active, clear it
+        oFilterDesc = oRange.createFilterDescriptor(True)
+        oFilterDesc.setPropertyValue("ContainsHeader", True)
+        oFilterDesc.setFilterFields(Array())
+        oRange.filter(oFilterDesc)
+        
+        ' Clear the filter state indicator in A1
+        oCellA1.setString("")
+    Else
+        ' No filter active, apply new filter
+        oFilterDesc = oRange.createFilterDescriptor(True)
+        oFilterDesc.setPropertyValue("ContainsHeader", True)
+        oFilterDesc.setPropertyValue("UseRegularExpressions", True)
+        
+        Dim oFilterFields(0) As New com.sun.star.sheet.TableFilterField
+        oFilterFields(0).Field = nColumn - 1
+        oFilterFields(0).IsNumeric = False
+        oFilterFields(0).StringValue = ".*" & sFilterValue & ".*"
+        oFilterFields(0).Operator = com.sun.star.sheet.FilterOperator.EQUAL
+        
+        oFilterDesc.setFilterFields(oFilterFields())
+        oRange.filter(oFilterDesc)
+        
+        ' Mark filter as active in A1 (store what we filtered for)
+        oCellA1.setString("FILTERED: " & sFilterValue)
+    End If
+End Sub
+
+Sub ClearFilterState()
+    ' Helper function to manually clear filter and state
+    Dim oSheet As Object
+    Dim oRange As Object
+    Dim oFilterDesc As Object
+    Dim oCellA1 As Object
+    
+    oSheet = ThisComponent.getCurrentController().getActiveSheet()
+    oRange = oSheet.getCellRangeByName("data")
+    oCellA1 = oSheet.getCellByPosition(0, 0)
+    
+    ' Clear filter
+    oFilterDesc = oRange.createFilterDescriptor(True)
+    oFilterDesc.setPropertyValue("ContainsHeader", True)
+    oFilterDesc.setFilterFields(Array())
+    oRange.filter(oFilterDesc)
+    
+    ' Clear state
+    oCellA1.setString("")
+End Sub
+
+' UTILITY FUNCTIONS
+' ============================================================================
+
+Function LastIndexOf(text As String, character As String) As Long
+    ' Utility function to find the last occurrence of a character in a string
+    ' Useful for path manipulation and filename extraction
+    ' Preserved from original macro for compatibility
+    
+    Dim i As Long
+    For i = Len(text) To 1 Step -1
+        If Mid(text, i, 1) = character Then
+            LastIndexOf = i
+            Exit Function
+        End If
+    Next i
+    LastIndexOf = 0
+End Function
+
+' RGB COLOR FUNCTION (for LibreOffice compatibility)
+' ============================================================================
+
+Function RGB(red As Integer, green As Integer, blue As Integer) As Long
+    ' Creates RGB color value for LibreOffice cell formatting
+    ' Parameters: red, green, blue values (0-255)
+    ' Returns: Long color value for use with CellBackColor property
+    
+    RGB = red + (green * 256) + (blue * 65536)
+End Function
+
+' ============================================================================
+' END OF CZKAWKA DUPLICATE ANALYSIS MACRO MODULE
+' ============================================================================
+'
+' KEYBOARD SHORTCUT RECOMMENDATIONS:
+' F3 		:	 OpenInFileManagerFromActiveCell (main function)
+' ctrl+3 	:	 MarkKeepOriginal (keep left/original file)
+' ctrl+4 	:	 MarkKeepDuplicate (keep right/duplicate file)
+' ctrl+6 	:	 MarkNeedsReview (mark for later review)
+' ctrl+7 	:	 ShowStatistics (view progress and statistics)
+' ctrl+8 	:	 ClearDecisions (reset selected rows)
+' ctrl+9 	:	 FilterByAction (apply filters for analysis)
+'
+' PROTECTED ROWS STRUCTURE:
+' - Row 1: Reserved for subtotals and summary calculations (PROTECTED)
+' - Row 2: Reserved for column headers (PROTECTED)
+' - Row 3+: Data rows where all operations are performed
+' - All decision marking functions check for protected rows and show warning if attempted
+' - File manager integration warns when clicked on protected rows
+' - Statistics and filtering functions properly handle protected rows
+' - ClearDecisions skips protected rows even if selected in range
+'
+' USAGE WORKFLOW:
+' 1. Row 1: Add subtotal formulas (e.g., =SUM(E3:E1000) for total duplicate size)
+' 2. Row 2: Column headers (OrigPath, OrigFile, DupPath, DupFile, Size, Hash, Keep_Original, Keep_Duplicate, Action)
+' 3. Row 3+: Import CSV data from czkawka_to_table.sh into columns A-F
+' 4. Sort by file size (column E) to prioritize large duplicates
+' 5. For each data row: F3 (view files) → ctrl+3/ctrl+4 (make decision) → auto-advance
+' 6. Use ctrl+7 to check progress, ctrl+9 to filter and review decisions
+' 7. Export filtered decisions for automated cleanup processing
+'
+' PROTECTED ROWS BENEFITS:
+' - Row 1 subtotals provide immediate feedback on potential space savings
+' - Row 2 headers remain visible during sorting and filtering operations
+' - Protected structure prevents accidental data corruption
+' - Consistent workflow starting from row 3 eliminates confusion
+'
+' For complete documentation, see duplicates_help.txt and README.md
+' ============================================================================

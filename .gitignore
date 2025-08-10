@@ -1,0 +1,16 @@
+# ONLY ignore these specific folders
+/dev/
+/archived/
+/production/data/
+
+# Temporary/system files
+*.tmp
+*~
+
+# Whitelist specific folders (all contents)
+# !/production/
+
+# Whitelist specific types
+# !*.sh
+# !*.py
+
