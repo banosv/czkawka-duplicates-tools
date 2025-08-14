@@ -10,41 +10,78 @@
 '
 ' FEATURES:
 ' - Dual-pane file manager integration (Krusader, Nemo)
+' - Enhanced Krusader integration with external script support
+' - Smart fallback system - if preferred manager fails, tries alternatives
 ' - Quick decision marking with color coding
 ' - Automatic cursor advancement for efficient workflow
 ' - Decision statistics and clearing functions
 ' - Support for external launch_krusader.sh script
 ' - Protected rows: Row 1 (subtotals) and Row 2 (headers) are protected
+' - Centralized validation and data extraction
 '
 ' SETUP:
 ' 1. Enable macros: Tools → Options → Security → Macro Security (Medium)
 ' 2. Assign keyboard shortcuts: Tools → Customize → Keyboard
-'    F3: OpenInFileManagerFromActiveCell
-'    ctrl+3: MarkKeepOriginal, ctrl+4: MarkKeepDuplicate, ctrl+6: MarkNeedsReview
+'    F3: OpenInNemoFromActiveCell (Nemo preference with Krusader fallback)
+'    Alt+F3: OpenInKrusaderFromActiveCell (Krusader preference with Nemo fallback)
+'    Ctrl+3: MarkKeepOriginal, Ctrl+4: MarkKeepDuplicate, Ctrl+6: MarkNeedsReview
+'    Alt+3: MarkSoftLinkOriginal, Alt+4: MarkSoftLinkDuplicate
+'    Ctrl+Alt+3: MarkHardLinkOriginal, Ctrl+Alt+4: MarkHardLinkDuplicate
+'    Ctrl+8: ClearDecisions, Ctrl+9: ToggleFilterByActiveCell, Ctrl+0: ClearFilterState
+'    Ctrl+7: ShowStatistics
 ' 3. Install file managers: sudo apt install nemo krusader
+' 4. Optional: Configure external Krusader script path in LaunchKrusader function
 '
-' Author: Enhanced for Czkawka project
+' PROTECTED ROWS STRUCTURE:
+' - Row 1: Reserved for subtotals and summary calculations (PROTECTED)
+' - Row 2: Reserved for column headers (PROTECTED)  
+' - Row 3+: Data rows where all operations are performed
+' - All functions automatically check for protected rows and show warnings
+' - Statistics and filtering functions properly handle protected rows
+' - ClearDecisions skips protected rows even if selected in range
+'
+' USAGE WORKFLOW:
+' 1. Row 1: Add subtotal formulas (e.g., =SUM(F3:F1000) for total duplicate size)
+' 2. Row 2: Column headers (OrigPath, OrigFile, DupPath, DupFile, Size, Hash, Keep_Original, Keep_Duplicate, Action)
+' 3. Row 3+: Import CSV data from czkawka into columns B-G
+' 4. Sort by file size (column F) to prioritize large duplicates
+' 5. For each row: F3 (Nemo) or Alt+F3 (Krusader) to open both file locations
+' 6. Make decision: Ctrl+3 (keep original), Ctrl+4 (keep duplicate), Ctrl+6 (review later)
+' 7. Advanced: Alt+3/Alt+4 (soft links), Ctrl+Alt+3/Ctrl+Alt+4 (hard links)
+' 8. Use Ctrl+7 to check progress, Ctrl+9 to filter by active cell content
+' 9. Export filtered decisions for automated cleanup processing
+'
+' REFACTORING IMPROVEMENTS:
+' - Centralized validation in ValidateAndGetFileData() function
+' - Smart fallback system in both main functions
+' - Eliminated code duplication between file manager functions
+' - Enhanced error handling and user feedback
+' - Clean separation between Nemo-preferred and Krusader-preferred workflows
+'
+' Author: Enhanced for Czkawka project with smart file manager integration
 ' Date: August 2025
 ' ============================================================================
 
-' MAIN FILE MANAGER INTEGRATION
+' VALIDATION AND DATA EXTRACTION FUNCTION
 ' ============================================================================
 
-Sub OpenInFileManagerFromActiveCell()
-    ' Opens both original and duplicate file locations in file manager
-    ' Supports Krusader (dual-pane), Nemo (tabs), and fallback options
+Function ValidateAndGetFileData() As Variant
+    ' Validates current cell position and extracts file data for file manager operations
+    ' Returns: Array with file data [leftPath, leftFile, rightPath, rightFile] or Empty on failure
     ' PROTECTED: Rows 1 (subtotals) and 2 (headers) are protected from file operations
+    ' 
+    ' This centralized function eliminates code duplication and ensures consistent
+    ' validation across all file manager integration functions
     
     Dim currentRow As Long
-    Dim currentCol As Long
     Dim leftPath As String, leftFile As String
     Dim rightPath As String, rightFile As String
     Dim sheet As Object
+    Dim fileData(3) As String
     
     ' Get the active sheet and cell position
     sheet = ThisComponent.getCurrentController().getActiveSheet()
     currentRow = ThisComponent.getCurrentController().getSelection().getRangeAddress().StartRow + 1
-    currentCol = ThisComponent.getCurrentController().getSelection().getRangeAddress().StartColumn + 1
     
     ' Check if we're on protected rows (rows 1-2) - no file operations on protected rows
     If currentRow <= 2 Then
@@ -52,7 +89,8 @@ Sub OpenInFileManagerFromActiveCell()
                "Row 1: Reserved for subtotals" & Chr(10) & _
                "Row 2: Reserved for headers" & Chr(10) & Chr(10) & _
                "Please select a data row (row 3 or below) to open files.", 48, "Czkawka Tools - Protected Rows")
-        Exit Sub
+        ValidateAndGetFileData = Empty
+        Exit Function
     End If
     
     ' Get all four values from the current row (B=OrigPath, C=OrigFile, D=DupPath, E=DupFile)
@@ -69,18 +107,97 @@ Sub OpenInFileManagerFromActiveCell()
                "C: Original filename" & Chr(10) & _
                "D: Duplicate folder path" & Chr(10) & _
                "E: Duplicate filename", 48, "Czkawka Tools - Data Error")
+        ValidateAndGetFileData = Empty
+        Exit Function
+    End If
+    
+    ' Return validated file data as array
+    fileData(0) = leftPath
+    fileData(1) = leftFile
+    fileData(2) = rightPath
+    fileData(3) = rightFile
+    
+    ValidateAndGetFileData = fileData
+End Function
+
+' MAIN FILE MANAGER INTEGRATION FUNCTIONS
+' ============================================================================
+
+Sub OpenInNemoFromActiveCell()
+    ' Opens both original and duplicate file locations with Nemo preference
+    ' Smart fallback order: 1st Nemo (tab support), 2nd Krusader (dual-pane), 3rd System default
+    ' 
+    ' KEYBOARD SHORTCUT: F3
+    ' 
+    ' Nemo is preferred for general file browsing with excellent tab support and file selection.
+    ' If Nemo fails, automatically falls back to Krusader, then system default file manager.
+    ' All validation and error handling is centralized through ValidateAndGetFileData().
+    
+    Dim fileData As Variant
+    Dim leftPath As String, leftFile As String
+    Dim rightPath As String, rightFile As String
+    
+    ' Validate and get file data using centralized function
+    fileData = ValidateAndGetFileData()
+    If IsEmpty(fileData) Then Exit Sub
+    
+    ' Extract file data from returned array
+    leftPath = fileData(0)
+    leftFile = fileData(1)
+    rightPath = fileData(2)
+    rightFile = fileData(3)
+    
+    ' Try file managers in Nemo-preferred order with smart fallback
+    
+    ' 1st choice: Nemo with tab support (preferred choice for this function)
+    If LaunchNemo(leftPath, rightPath, leftFile, rightFile) Then
         Exit Sub
     End If
     
-    ' Try file managers in order of preference for best user experience
-    
-    ' 1st choice: Nemo with tab support (good file selection capabilities)
-    If LaunchNemoDevPanes(leftPath, rightPath, leftFile, rightFile) Then
-        Exit Sub
-    End If
-    
-    ' 2nd choice: Krusader with dual-pane view (excellent for comparisons)
+    ' 2nd choice: Krusader with dual-pane view (good fallback for comparisons)
     If LaunchKrusader(leftPath, rightPath, leftFile, rightFile) Then
+        Exit Sub
+    End If
+    
+    ' Final fallback: Open both locations in separate windows using system default
+    LaunchSeparateWindows(leftPath, rightPath, leftFile, rightFile)
+End Sub
+
+' ============================================================================
+Sub OpenInKrusaderFromActiveCell()
+    ' Opens both original and duplicate file locations with Krusader preference
+    ' Smart fallback order: 1st Krusader (dual-pane + script), 2nd Nemo (tabs), 3rd System default
+    ' 
+    ' KEYBOARD SHORTCUT: Alt+F3
+    ' 
+    ' Krusader is preferred for file comparisons with excellent dual-pane layout and
+    ' enhanced script support for direct file selection. If Krusader fails, automatically 
+    ' falls back to Nemo, then system default file manager.
+    ' All validation and error handling is centralized through ValidateAndGetFileData().
+    
+    Dim fileData As Variant
+    Dim leftPath As String, leftFile As String
+    Dim rightPath As String, rightFile As String
+    
+    ' Validate and get file data using centralized function
+    fileData = ValidateAndGetFileData()
+    If IsEmpty(fileData) Then Exit Sub
+    
+    ' Extract file data from returned array
+    leftPath = fileData(0)
+    leftFile = fileData(1)
+    rightPath = fileData(2)
+    rightFile = fileData(3)
+    
+    ' Try file managers in Krusader-preferred order with smart fallback
+    
+    ' 1st choice: Krusader with enhanced script support (preferred choice for this function)
+    If LaunchKrusader(leftPath, rightPath, leftFile, rightFile) Then
+        Exit Sub
+    End If
+    
+    ' 2nd choice: Nemo with tab support (good fallback for file browsing)
+    If LaunchNemo(leftPath, rightPath, leftFile, rightFile) Then
         Exit Sub
     End If
     
@@ -92,51 +209,61 @@ End Sub
 ' ============================================================================
 
 Function LaunchKrusader(leftPath As String, rightPath As String, leftFile As String, rightFile As String) As Boolean
-    ' Launches Krusader file manager with dual-pane view
-    ' Uses external launch_krusader.sh script if available, falls back to direct command
+    ' Enhanced Krusader launcher with multiple fallback strategies and script support
+    ' Attempts external script first for best file selection, then direct commands
+    ' 
+    ' Strategy 1: External script (best file selection and positioning)
+    ' Strategy 2: Direct command with profile parameter
+    ' Strategy 3: Basic direct command
+    ' 
+    ' Configure scriptPath variable below to match your installation
     
     On Error GoTo KrusaderError
     Dim command As String
-
-    ' Try to use the external launch script first (keeps paths organized)
-    ' Update path to match your installation: /home/banos/opt/czkawka-cli/launch_krusader.sh
-    command = "/home/banos/opt/czkawka-cli/launch_krusader.sh " & leftPath & " " & rightPath
+    Dim scriptPath As String
+    Dim useScript As Boolean
     
-    ' Launch Krusader via script - this provides dual-pane with proper path setup
+    ' Define the script path - CONFIGURE THIS TO MATCH YOUR INSTALLATION
+    scriptPath = "~/opt/czkawka-cli/production/scripts/launch_krusader.sh"
+    useScript = True
+    
+    ' Strategy 1: Try the external script first (best option for file selection)
+    If useScript Then
+        On Error GoTo TryDirectCommand
+        command = scriptPath & " """ & leftPath & """ """ & rightPath & """"
+        Shell(command, 1)
+        LaunchKrusader = True
+        Exit Function
+    End If
+    
+TryDirectCommand:
+    ' Strategy 2: Direct Krusader command with enhanced parameters
+    On Error GoTo TryBasicCommand
+    
+    ' Try with profile parameter for dual-pane mode
+    command = "krusader --profile=panel --left=""" & leftPath & """ --right=""" & rightPath & """"
     Shell(command, 1)
-
-    '** 'To revive the following code block remove only the outer comments '** 
-    '** ' Wait a moment for Krusader to load, then show guidance message
-    '** Wait(2000)  ' Wait 2 seconds
-    '** 
-    '** ' Note: Krusader doesn't have direct file selection via command line
-    '** ' User will need to manually navigate to the files
-    '** MsgBox("Krusader opened with:" & Chr(10) & _
-    '**        "Left: " & leftPath & Chr(10) & _
-    '**        "Right: " & rightPath & Chr(10) & Chr(10) & _
-    '**        "Navigate to:" & Chr(10) & _
-    '**        "Left: " & leftFile & Chr(10) & _
-    '**        "Right: " & rightFile, 64, "Files Opened in Krusader")
-  
     LaunchKrusader = True
     Exit Function
-
-KrusaderError:
-    ' If external script fails, try direct Krusader command
-    On Error GoTo KrusaderDirectError
+    
+TryBasicCommand:
+    ' Strategy 3: Basic Krusader command (final fallback)
+    On Error GoTo KrusaderError
     command = "krusader --left=""" & leftPath & """ --right=""" & rightPath & """"
     Shell(command, 1)
     LaunchKrusader = True
     Exit Function
     
-KrusaderDirectError:
-    ' Krusader not available or command failed
+KrusaderError:
+    ' All strategies failed
     LaunchKrusader = False
 End Function
 
-Function LaunchNemoDevPanes(leftPath As String, rightPath As String, leftFile As String, rightFile As String) As Boolean
+' ============================================================================
+Function LaunchNemo(leftPath As String, rightPath As String, leftFile As String, rightFile As String) As Boolean
     ' Launches Nemo file manager with both locations in separate tabs
     ' Attempts to open specific files directly for easier identification
+    ' Uses Nemo's tab support (-t parameter) for better organization
     
     On Error GoTo NemoError
     Dim command As String
@@ -145,25 +272,19 @@ Function LaunchNemoDevPanes(leftPath As String, rightPath As String, leftFile As
     command = "nemo -t """ & leftPath & "/" & leftFile & """ """ & rightPath & "/" & rightFile & """"
     Shell(command, 1)
     
-    '** 'To revive the following code block remove only the outer comments '** 
-    '** MsgBox("Nemo opened with both locations:" & Chr(10) & _
-    '**        "Left location: " & leftPath & Chr(10) & _
-    '**        "Right location: " & rightPath & Chr(10) & Chr(10) & _
-    '**        "Look for:" & Chr(10) & _
-    '**        "Left file: " & leftFile & Chr(10) & _
-    '**        "Right file: " & rightFile, 64, "Files Opened in Nemo")
-    
-    LaunchNemoDevPanes = True
+    LaunchNemo = True
     Exit Function
     
 NemoError:
     ' Nemo not available or command failed
-    LaunchNemoDevPanes = False
+    LaunchNemo = False
 End Function
 
+' ============================================================================
 Sub LaunchSeparateWindows(leftPath As String, rightPath As String, leftFile As String, rightFile As String)
     ' Final fallback: opens both file locations in separate file manager windows
-    ' Uses system default file manager via xdg-open for maximum compatibility
+    ' Uses system default file manager for maximum compatibility when specialized managers fail
+    ' Attempts to open files directly first, falls back to opening containing folders
     
     Dim leftCommand As String, rightCommand As String
     Dim leftFullPath As String, rightFullPath As String
@@ -175,7 +296,7 @@ Sub LaunchSeparateWindows(leftPath As String, rightPath As String, leftFile As S
     ' Try to open the specific files first, fall back to folders if that fails
     On Error GoTo FallbackToFolders
     
-    ' Open both files directly using system default file manager
+    ' Open both files directly using Nemo as system default
     leftCommand = "nemo """ & leftFullPath & """"
     rightCommand = "nemo """ & rightFullPath & """"
     
@@ -190,7 +311,7 @@ Sub LaunchSeparateWindows(leftPath As String, rightPath As String, leftFile As S
     Exit Sub
     
 FallbackToFolders:
-    ' If direct file opening fails, open the containing folders
+    ' If direct file opening fails, open the containing folders using xdg-open
     Shell("xdg-open """ & leftPath & """", 1)
     Wait(1500)
     Shell("xdg-open """ & rightPath & """", 1)
@@ -232,7 +353,7 @@ Sub MarkKeepOriginal()
     sheet.getCellByPosition(8, currentRow).setString("NO")               ' Column I: Don't keep duplicate
     sheet.getCellByPosition(9, currentRow).setString("DELETE_DUPLICATE") ' Column J: Action to take
     
-    ' Apply visual color coding for immediate feedback - FIXED METHOD
+    ' Apply visual color coding for immediate feedback
     cellG = sheet.getCellByPosition(7, currentRow)
     cellH = sheet.getCellByPosition(8, currentRow)
     
@@ -243,6 +364,7 @@ Sub MarkKeepOriginal()
     MoveToNextRow()
 End Sub
 
+' ============================================================================
 Sub MarkKeepDuplicate()
     ' Marks decision to keep the duplicate file (columns D&E) and delete original (columns B&C)
     ' Updates columns H=NO, I=YES, J=DELETE_ORIGINAL with visual color coding
@@ -269,7 +391,7 @@ Sub MarkKeepDuplicate()
     sheet.getCellByPosition(8, currentRow).setString("YES")              ' Column I: Keep duplicate
     sheet.getCellByPosition(9, currentRow).setString("DELETE_ORIGINAL")  ' Column J: Action to take
     
-    ' Apply visual color coding - FIXED METHOD
+    ' Apply visual color coding
     cellG = sheet.getCellByPosition(7, currentRow)
     cellH = sheet.getCellByPosition(8, currentRow)
     
@@ -280,6 +402,7 @@ Sub MarkKeepDuplicate()
     MoveToNextRow()
 End Sub
 
+' ============================================================================
 Sub MarkDeleteBoth()
     ' Marks decision to delete both the original and duplicate files
     ' Updates columns H=NO, I=NO, J=DELETE_BOTH with visual color coding
@@ -307,7 +430,7 @@ Sub MarkDeleteBoth()
     sheet.getCellByPosition(8, currentRow).setString("NO")           ' Column I: Don't keep duplicate
     sheet.getCellByPosition(9, currentRow).setString("DELETE_BOTH")  ' Column J: Delete both files
     
-    ' Apply red color coding to both columns (warning: both will be deleted) - FIXED METHOD
+    ' Apply red color coding to both columns (warning: both will be deleted)
     cellG = sheet.getCellByPosition(7, currentRow)
     cellH = sheet.getCellByPosition(8, currentRow)
     
@@ -318,6 +441,7 @@ Sub MarkDeleteBoth()
     MoveToNextRow()
 End Sub
 
+' ============================================================================
 Sub MarkNeedsReview()
     ' Marks files that need additional review before making a decision
     ' Updates columns H=REVIEW, I=REVIEW, J=REVIEW_NEEDED with visual color coding
@@ -345,7 +469,7 @@ Sub MarkNeedsReview()
     sheet.getCellByPosition(8, currentRow).setString("REVIEW")        ' Column I: Needs review
     sheet.getCellByPosition(9, currentRow).setString("REVIEW_NEEDED") ' Column J: Action needed
     
-    ' Apply yellow color coding to indicate "needs attention" - FIXED METHOD
+    ' Apply yellow color coding to indicate "needs attention"
     cellG = sheet.getCellByPosition(7, currentRow)
     cellH = sheet.getCellByPosition(8, currentRow)
     
@@ -396,6 +520,7 @@ Sub MarkSoftLinkOriginal()
     MoveToNextRow()
 End Sub
 
+' ============================================================================
 Sub MarkSoftLinkDuplicate()
     ' Marks decision to keep the duplicate file and soft link the original to it
     ' Updates columns H=LINK, I=YES, J=SOFTLINK_ORIGINAL with visual color coding
@@ -473,6 +598,7 @@ Sub MarkHardLinkOriginal()
     MoveToNextRow()
 End Sub
 
+' ============================================================================
 Sub MarkHardLinkDuplicate()
     ' Marks decision to keep the duplicate file and hard link the original to it
     ' Updates columns H=LINK, I=YES, J=HARDLINK_ORIGINAL with visual color coding
@@ -535,6 +661,7 @@ Sub MoveToNextRow()
     oController.select(oSheet.getCellByPosition(1, targetRow))
 End Sub
 
+' ============================================================================
 Sub ClearDecisions()
     ' Clears all decision markings (columns H, I, J) for selected range of rows
     ' Also resets color formatting to default
@@ -563,7 +690,7 @@ Sub ClearDecisions()
             sheet.getCellByPosition(8, i).setString("")  ' Clear Keep_Duplicate
             sheet.getCellByPosition(9, i).setString("")  ' Clear Action
             
-            ' Reset background colors to default (no color) - FIXED METHOD
+            ' Reset background colors to default (no color)
             cellG = sheet.getCellByPosition(7, i)
             cellH = sheet.getCellByPosition(8, i)
             
@@ -586,6 +713,7 @@ Sub ClearDecisions()
     End If
 End Sub
 
+' ============================================================================
 Sub ShowStatistics()
     ' Displays summary statistics of all decision markings in the current sheet
     ' Helps track progress and review decision patterns
@@ -594,14 +722,14 @@ Sub ShowStatistics()
     Dim sheet As Object
     Dim lastRow As Long
     Dim keepOrig As Long, keepDup As Long, deleteBoth As Long, needReview As Long, unprocessed As Long
+    Dim softLinkOrig As Long, softLinkDup As Long, hardLinkOrig As Long, hardLinkDup As Long
     Dim i As Long
     Dim action As String
     Dim totalDataRows As Long
     
     sheet = ThisComponent.getCurrentController().getActiveSheet()
     
-    ' Find the last row with data - SIMPLIFIED METHOD
-    ' Check from row 3 downward (skip protected rows 1-2) until we find an empty Action column (column J)
+    ' Find the last row with data - check from row 3 downward (skip protected rows 1-2)
     lastRow = 2  ' Start from row 3 (index 2)
     Do While sheet.getCellByPosition(9, lastRow).getString() <> "" Or sheet.getCellByPosition(1, lastRow).getString() <> ""
         lastRow = lastRow + 1
@@ -626,6 +754,14 @@ Sub ShowStatistics()
                 deleteBoth = deleteBoth + 1
             Case "REVIEW_NEEDED"
                 needReview = needReview + 1
+            Case "SOFTLINK_DUPLICATE"
+                softLinkOrig = softLinkOrig + 1
+            Case "SOFTLINK_ORIGINAL"
+                softLinkDup = softLinkDup + 1
+            Case "HARDLINK_DUPLICATE"
+                hardLinkOrig = hardLinkOrig + 1
+            Case "HARDLINK_ORIGINAL"
+                hardLinkDup = hardLinkDup + 1
             Case ""
                 unprocessed = unprocessed + 1
         End Select
@@ -634,7 +770,7 @@ Sub ShowStatistics()
     ' Calculate completion percentage
     Dim processedRows As Long
     Dim completionPercent As Long
-    processedRows = keepOrig + keepDup + deleteBoth + needReview
+    processedRows = keepOrig + keepDup + deleteBoth + needReview + softLinkOrig + softLinkDup + hardLinkOrig + hardLinkDup
     If totalDataRows > 0 Then
         completionPercent = Int((processedRows / totalDataRows) * 100)
     Else
@@ -644,10 +780,16 @@ Sub ShowStatistics()
     ' Display comprehensive statistics
     MsgBox("CZKAWKA DUPLICATE ANALYSIS STATISTICS" & Chr(10) & _
            "===========================================" & Chr(10) & Chr(10) & _
-           "DECISIONS MADE:" & Chr(10) & _
+           "DELETION DECISIONS:" & Chr(10) & _
            "Keep Original (delete duplicate): " & keepOrig & Chr(10) & _
            "Keep Duplicate (delete original): " & keepDup & Chr(10) & _
-           "Delete Both Files: " & deleteBoth & Chr(10) & _
+           "Delete Both Files: " & deleteBoth & Chr(10) & Chr(10) & _
+           "LINKING DECISIONS:" & Chr(10) & _
+           "Soft Link Duplicate to Original: " & softLinkOrig & Chr(10) & _
+           "Soft Link Original to Duplicate: " & softLinkDup & Chr(10) & _
+           "Hard Link Duplicate to Original: " & hardLinkOrig & Chr(10) & _
+           "Hard Link Original to Duplicate: " & hardLinkDup & Chr(10) & Chr(10) & _
+           "OTHER:" & Chr(10) & _
            "Need Review: " & needReview & Chr(10) & Chr(10) & _
            "PROGRESS:" & Chr(10) & _
            "Processed: " & processedRows & " rows" & Chr(10) & _
@@ -657,56 +799,16 @@ Sub ShowStatistics()
            "NEXT STEPS:" & Chr(10) & _
            "- Filter by Action column to review cleanup plan" & Chr(10) & _
            "- Address items marked 'REVIEW_NEEDED'" & Chr(10) & _
-           "- Export decisions for automated cleanup" & Chr(10) & Chr(10) & _
-           "Note: Protected rows 1-2 are excluded from statistics.", 64, "Duplicate Analysis Progress")
+           "- Export decisions for automated cleanup", 64, "Duplicate Analysis Progress")
 End Sub
 
-Sub FilterByAction()
-    ' Applies AutoFilter to the Action column (I) for easy filtering of decisions
-    ' Enables quick viewing of specific decision types (e.g., only files to delete)
-    ' PROTECTED: Filter includes headers from row 2 for proper column labeling
-    
-    Dim sheet As Object
-    Dim dataRange As Object
-    Dim lastRow As Long
-    
-    sheet = ThisComponent.getCurrentController().getActiveSheet()
-    
-    ' Find last row with data - SIMPLIFIED METHOD
-    ' Check from row 3 downward until we find an empty Action column
-    lastRow = 2
-    Do While sheet.getCellByPosition(8, lastRow).getString() <> "" Or sheet.getCellByPosition(0, lastRow).getString() <> ""
-        lastRow = lastRow + 1
-        If lastRow > 10000 Then Exit Do ' Safety limit
-    Loop
-    lastRow = lastRow - 1 ' Go back to last non-empty row
-    
-    If lastRow < 2 Then lastRow = 2 ' Ensure we have at least headers + one data row
-    
-    ' Get the data range starting from row 2 (headers) for proper AutoFilter setup
-    dataRange = sheet.getCellRangeByPosition(0, 1, 8, lastRow)  ' Row 2 (index 1) to lastRow
-    
-    ' Try to apply AutoFilter
-    On Error GoTo FilterError
-    dataRange.AutoFilter = True
-    
-    MsgBox("AutoFilter applied to data range (rows 2-" & (lastRow + 1) & ")." & Chr(10) & Chr(10) & _
-           "Click dropdown arrows in header row (row 2) to filter by:" & Chr(10) & _
-           "- Action types (DELETE_DUPLICATE, DELETE_ORIGINAL, etc.)" & Chr(10) & _
-           "- File sizes, folder paths, or any other column" & Chr(10) & Chr(10) & _
-           "Use this to review your cleanup plan before execution." & Chr(10) & Chr(10) & _
-           "Note: Row 1 (subtotals) and Row 2 (headers) are protected.", 64, "Czkawka Tools - Filter Applied")
-    Exit Sub
-    
-FilterError:
-    ' If AutoFilter fails, just optimize column widths
-    dataRange.getColumns().setPropertyValue("OptimalWidth", True)
-    MsgBox("Applied optimal column widths to data range." & Chr(10) & Chr(10) & _
-           "AutoFilter may need to be applied manually via:" & Chr(10) & _
-           "Data → AutoFilter menu option", 48, "Czkawka Tools - Partial Success")
-End Sub
-
+' ============================================================================
 Sub ToggleFilterByActiveCell()
+    ' Toggles filter on/off based on active cell content in its column
+    ' Uses regular expression matching to find all rows containing the active cell value
+    ' Stores filter state in cell A1 to track when filter is active
+    ' PROTECTED: Works with all data including protected rows for filtering purposes
+    
     Dim oSheet As Object
     Dim oRange As Object
     Dim oActiveCell As Object
@@ -717,9 +819,9 @@ Sub ToggleFilterByActiveCell()
     
     ' Get the active sheet and cell
     oSheet = ThisComponent.getCurrentController().getActiveSheet()
-    oRange = oSheet.getCellRangeByName("data")
+    oRange = oSheet.getCellRangeByName("fullData")  ' Full data range
     oActiveCell = ThisComponent.getCurrentController().getSelection()
-    oCellA1 = oSheet.getCellByPosition(0, 0)  ' A1 cell
+    oCellA1 = oSheet.getCellByPosition(0, 0)  ' A1 cell for filter state
     
     ' Check if a single cell is selected
     If oActiveCell.getImplementationName() <> "ScCellObj" Then
@@ -730,8 +832,8 @@ Sub ToggleFilterByActiveCell()
     nColumn = oActiveCell.getCellAddress().Column
     sFilterValue = oActiveCell.getString()
     
-    ' Check if the active cell is in the filter range and has content
-    If nColumn < 1 Or nColumn > 10 Or sFilterValue = "" Then
+    ' Check if the active cell is in the data range and has content
+    If nColumn < 1 Or nColumn > 9 Or sFilterValue = "" Then
         Exit Sub
     End If
     
@@ -752,7 +854,7 @@ Sub ToggleFilterByActiveCell()
         oFilterDesc.setPropertyValue("UseRegularExpressions", True)
         
         Dim oFilterFields(0) As New com.sun.star.sheet.TableFilterField
-        oFilterFields(0).Field = nColumn - 1
+        oFilterFields(0).Field = nColumn
         oFilterFields(0).IsNumeric = False
         oFilterFields(0).StringValue = ".*" & sFilterValue & ".*"
         oFilterFields(0).Operator = com.sun.star.sheet.FilterOperator.EQUAL
@@ -765,15 +867,19 @@ Sub ToggleFilterByActiveCell()
     End If
 End Sub
 
+' ============================================================================
 Sub ClearFilterState()
     ' Helper function to manually clear filter and state
+    ' Removes any active filters and clears the filter state indicator
+    ' Useful when you want to see all data again
+    
     Dim oSheet As Object
     Dim oRange As Object
     Dim oFilterDesc As Object
     Dim oCellA1 As Object
     
     oSheet = ThisComponent.getCurrentController().getActiveSheet()
-    oRange = oSheet.getCellRangeByName("data")
+    oRange = oSheet.getCellRangeByName("A:J")
     oCellA1 = oSheet.getCellByPosition(0, 0)
     
     ' Clear filter
@@ -782,8 +888,10 @@ Sub ClearFilterState()
     oFilterDesc.setFilterFields(Array())
     oRange.filter(oFilterDesc)
     
-    ' Clear state
+    ' Clear state indicator
     oCellA1.setString("")
+    
+    MsgBox("All filters cleared. Showing all data rows.", 64, "Filter Cleared")
 End Sub
 
 ' UTILITY FUNCTIONS
@@ -816,41 +924,23 @@ Function RGB(red As Integer, green As Integer, blue As Integer) As Long
 End Function
 
 ' ============================================================================
+' KEYBOARD SHORTCUTS SUMMARY:
+' ============================================================================
+' F3 		: OpenInNemoFromActiveCell (Nemo → Krusader → System Default)
+' Alt+F3 	: OpenInKrusaderFromActiveCell (Krusader → Nemo → System Default)
+' Ctrl+3 	: MarkKeepOriginal (keep left/original file)
+' Ctrl+4 	: MarkKeepDuplicate (keep right/duplicate file)
+' Ctrl+6 	: MarkNeedsReview (mark for later review)
+' Alt+3		: MarkSoftLinkOriginal (soft link duplicate to original)
+' Alt+4		: MarkSoftLinkDuplicate (soft link original to duplicate)
+' Ctrl+Alt+3: MarkHardLinkOriginal (hard link duplicate to original) 
+' Ctrl+Alt+4: MarkHardLinkDuplicate (hard link original to duplicate)
+' Ctrl+8 	: ClearDecisions (reset selected rows)
+' Ctrl+9 	: ToggleFilterByActiveCell (filter column by active cell content)
+' Ctrl+0	: ClearFilterState (clear any active filter)
+' Ctrl+7 	: ShowStatistics (view progress and decision summary)
+'
+' ============================================================================
 ' END OF CZKAWKA DUPLICATE ANALYSIS MACRO MODULE
-' ============================================================================
-'
-' KEYBOARD SHORTCUT RECOMMENDATIONS:
-' F3 		:	 OpenInFileManagerFromActiveCell (main function)
-' ctrl+3 	:	 MarkKeepOriginal (keep left/original file)
-' ctrl+4 	:	 MarkKeepDuplicate (keep right/duplicate file)
-' ctrl+6 	:	 MarkNeedsReview (mark for later review)
-' ctrl+7 	:	 ShowStatistics (view progress and statistics)
-' ctrl+8 	:	 ClearDecisions (reset selected rows)
-' ctrl+9 	:	 FilterByAction (apply filters for analysis)
-'
-' PROTECTED ROWS STRUCTURE:
-' - Row 1: Reserved for subtotals and summary calculations (PROTECTED)
-' - Row 2: Reserved for column headers (PROTECTED)
-' - Row 3+: Data rows where all operations are performed
-' - All decision marking functions check for protected rows and show warning if attempted
-' - File manager integration warns when clicked on protected rows
-' - Statistics and filtering functions properly handle protected rows
-' - ClearDecisions skips protected rows even if selected in range
-'
-' USAGE WORKFLOW:
-' 1. Row 1: Add subtotal formulas (e.g., =SUM(E3:E1000) for total duplicate size)
-' 2. Row 2: Column headers (OrigPath, OrigFile, DupPath, DupFile, Size, Hash, Keep_Original, Keep_Duplicate, Action)
-' 3. Row 3+: Import CSV data from czkawka_to_table.sh into columns A-F
-' 4. Sort by file size (column E) to prioritize large duplicates
-' 5. For each data row: F3 (view files) → ctrl+3/ctrl+4 (make decision) → auto-advance
-' 6. Use ctrl+7 to check progress, ctrl+9 to filter and review decisions
-' 7. Export filtered decisions for automated cleanup processing
-'
-' PROTECTED ROWS BENEFITS:
-' - Row 1 subtotals provide immediate feedback on potential space savings
-' - Row 2 headers remain visible during sorting and filtering operations
-' - Protected structure prevents accidental data corruption
-' - Consistent workflow starting from row 3 eliminates confusion
-'
-' For complete documentation, see duplicates_help.txt and README.md
-' ============================================================================
+' ============================================================================ & Chr(10) & Chr(10) & _
+
