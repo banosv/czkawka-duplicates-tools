@@ -1,16 +1,26 @@
-# ONLY ignore these specific folders
+# ========== CORE DIRECTORY EXCLUSIONS ==========
+# These folders and their contents will be completely ignored
 /dev/
 /archived/
 /production/data/
 
-# Temporary/system files
-*.tmp
-*~
+# ========== TEMPORARY FILE PATTERNS ==========
+# System/application temporary files (global matching)
+*.tmp      # Any file ending with .tmp
+*~         # Emacs/nano backup files
+*.~lock.*# # LibreOffice lock files (all variants)
 
-# Whitelist specific folders (all contents)
-# !/production/
+# ========== WHITELIST RULES ==========
+# (Uncomment ONLY the exceptions you need)
+# !/production/               # (DANGER: Whitelists EVERYTHING in production/)
+# !/production/LO-calc/       # Whitelists ONLY the macro folder
+# !/production/LO-calc/*.ods  # Whitelists ONLY .ods files in macro folder
+# !*.sh                       # Whitelists ALL .sh files in project
+# !*.py                       # Whitelists ALL .py files in project
 
-# Whitelist specific types
-# !*.sh
-# !*.py
 
+# ========== LIBREOFFICE SPECIFIC ==========
+# Explicit LibreOffice lock file patterns
+*~lock*
+.~lock.*
+*.~lock.*#
