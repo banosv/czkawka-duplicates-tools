@@ -1,10 +1,15 @@
+
 # Setup Guide - Czkawka Duplicates Tools
 
 Complete installation and configuration for the duplicate file management pipeline.
 
-## **System Requirements**
+## 🖥️ System Requirements
 
-### **Core Dependencies**
+### Operating System
+- **Primary**: Linux Mint (tested - full functionality)
+- **Alternative**: Any OS with Python 3.6+ (Python engine only)
+
+### Core Dependencies
 ```bash
 # Essential packages
 sudo apt update
@@ -13,29 +18,35 @@ sudo apt install -y libreoffice-calc nemo python3 python3-pip jq
 # Optional dual-pane file manager
 sudo apt install -y krusader
 
-# Czkawka installation (choose one method)
-# Method 1: Snap package
-sudo snap install czkawka
-
-# Method 2: Direct download from GitHub releases
-# See: https://github.com/qarmin/czkawka/releases
-
-```
-
-### **Python Environment**
-
-```bash
-# Verify Python 3.6+ 
+# Verify Python version (3.6+ required)
 python3 --version
-
-# Scripts use standard library only - no additional pip packages needed
-
 ```
 
-## **Repository Setup**
+### Czkawka Installation
+#### Method 1: Direct Download
+Download one of the precompiled binaries from https://github.com/qarmin/czkawka/releases make it executable, move it to the working dir or to /usr/local/bin/ or to ~/.local/bin/ and use it.
+```bash
+# Make executable and move to /usr/local/bin/
+chmod +x linux_czkawka_cli
+sudo mv linux_czkawka_cli /usr/local/bin/
+```
+**Or:**
+#### Method 2: Build from Source
+Follow instructions under 'Usage, installation, compilation, requirements, license' in the  `README.md` file. 
 
-### **1. Clone and Configure**
+### Verification
+```bash
+# Test Czkawka installation
+linux_czkawka_cli --version
 
+# Test file managers
+nemo --version
+krusader --version  # Optional
+```
+
+## 📁 Repository Setup
+
+### Clone and Configure
 ```bash
 git clone https://github.com/banosv/czkawka-duplicates-tools.git
 cd czkawka-duplicates-tools
@@ -43,135 +54,217 @@ cd czkawka-duplicates-tools
 # Make scripts executable
 chmod +x production/scripts/*.sh
 chmod +x production/scripts/python/*.py
-
 ```
 
-### **2. LibreOffice Configuration**
-
-#### **Enable Macros**
-
-1.  Open LibreOffice
-2.  Go to: **Tools → Options → LibreOffice → Security → Macro Security**
-3.  Set security level to **Medium** or **Low**
-4.  Restart LibreOffice
-
-#### **Create Named Range (CRITICAL)**
-
-1.  Open `production/LO-calc/duplicates.ods`
-2.  Go to: **Sheet → Named Ranges and Expressions → Define**
-3.  Create named range **"fullData"**:
-    -   **Name:** `fullData`
-    -   **Range:** `$duplicates.$A$2:$K$100000`
-    -   Click **OK**
-
-#### **Import Macro v0.5**
-
-1.  In LibreOffice Calc: **Tools → Macros → Organize Macros → Basic**
-2.  Click **My Macros → Organizer → Modules → Import**
-3.  Import: `production/LO-calc/duplicates.ods.macros.txt`
-4.  Save and close
-
-#### **Keyboard Shortcuts Setup**
-
-Go to: **Tools → Customize → Keyboard** and assign:   
-
-|Shortcut|Function  |Action|
-|--|--|--|
-|F3|OpenInNemoFromActiveCell|Open files in Nemo|
-|Alt+F3|OpenInKrusaderFromActiveCell|Open files in Krusader|
-|Ctrl+3|MarkKeepOriginal|Keep original, delete duplicate|
-|Ctrl+4|MarkKeepDuplicate|Keep duplicate, delete original|
-|Ctrl+6|MarkNeedsReview|Mark for review|
-|Alt+3|MarkSoftLinkOriginal|Soft link duplicate→original|
-|Alt+4|MarkSoftLinkDuplicate|Soft link original→duplicate|
-|Ctrl+Alt+3|MarkHardLinkOriginal|Hard link duplicate→original|
-|Ctrl+Alt+4|MarkHardLinkDuplicate|Hard link original→duplicate|
-|Ctrl+7|ShowStatistics|Show progress statistics|
-|Ctrl+8|ClearDecisions|Clear marked decisions|
-|Ctrl+9|ToggleFilterByActiveCell|Filter by cell content|
-|Ctrl+0|ClearFilterState|Clear all filters|
-
-## **Script Configuration**
-
-### **Krusader Integration (Optional)**
-
-If using the external Krusader script, verify the path in the macro:
-
-1.  Edit macro function `LaunchKrusader`
-2.  Update `scriptPath` variable to match your installation:
-    
-    ```vb
-    scriptPath = "~/opt/czkawka-cli/production/scripts/launch_krusader.sh"
-    
-    ```
-    
-
-### **Working Directory Structure**
-
-The Python scripts create this structure automatically:
-
-```
-~/tmp/2delete/duplicatesHandling/
-├── duplicate_backups/          # Timestamped backup folders
-│   └── 20250815_143022/       # Automatic backups by session
-├── duplicate_actions.log       # Detailed operation log
-└── duplicate_rollback.json     # Rollback data
-
+### Directory Structure Verification
+```bash
+# Verify complete structure
+tree production/
+# Should show:
+# ├── LO-calc/
+# │   ├── duplicates.ods
+# │   └── duplicates.ods.macros.txt
+# ├── scripts/
+# │   ├── czkawkaDupFind.sh
+# │   ├── czkawka_to_table.sh
+# │   ├── execute_duplicate_actions.sh
+# │   ├── launch_krusader.sh
+# │   └── python/
+# │       ├── duplicate_executor.py
+# │       └── rollback_duplicates.py
+# └── docs/
+#     ├── SETUP.md
+#     └── USAGE.md
 ```
 
-## **Verification**
+## 🧮 LibreOffice Configuration
 
-### **Test Complete Pipeline**
+### Enable Macro Security
+1. Open LibreOffice
+2. Navigate: **Tools → Options → LibreOffice → Security → Macro Security**
+3. Two options: 
+	- A. Add the macro location to the Trusted Sources (the subfolder containing `duplicates.ods` or one of the parent folders) 
+	or  
+	- B. Set security level to **Medium** or **Low**
+4.  Click **OK** and restart LibreOffice
+
+### Import Macro System
+1. Open `production/LO-calc/duplicates.ods`
+2. Navigate: **Tools → Macros → Organize Macros → Basic**
+3. Click **My Macros → Organizer → Modules → Import**
+4. Import: `production/LO-calc/duplicates.ods.macros.txt`
+5. Save and close macro editor
+
+### Create Named Range (CRITICAL)
+1. In LibreOffice Calc: **Sheet → Named Ranges and Expressions → Define**
+2. Create named range **"fullData"**:
+   - **Name**: `fullData`
+   - **Range**: `$duplicates.$A$2:$K$100000`
+   - Click **OK**
+
+### Configure Keyboard Shortcuts
+Navigate: **Tools → Customize → Keyboard**
+
+**File Manager Integration:**
+- **F3** → `OpenInNemoFromActiveCell`
+- **Alt+F3** → `OpenInKrusaderFromActiveCell`
+
+**Basic Decision Marking:**
+- **Ctrl+3** → `MarkKeepOriginal`
+- **Ctrl+4** → `MarkKeepDuplicate`
+- **Ctrl+6** → `MarkNeedsReview`
+
+**Advanced Linking Options:**
+- **Alt+3** → `MarkSoftLinkOriginal`
+- **Alt+4** → `MarkSoftLinkDuplicate`
+- **Ctrl+Alt+3** → `MarkHardLinkOriginal`
+- **Ctrl+Alt+4** → `MarkHardLinkDuplicate`
+
+**Utility Functions:**
+- **Ctrl+7** → `ShowStatistics`
+- **Ctrl+8** → `ClearDecisions`
+- **Ctrl+9** → `ToggleFilterByActiveCell`
+- **Ctrl+0** → `ClearFilterState`
+
+### Optional: External Krusader Script Configuration
+If using enhanced Krusader integration:
+
+1. Edit the macro file or directly in LibreOffice:
+2. Find the `LaunchKrusader` function
+3. Update `scriptPath` variable:
+   ```vb
+   scriptPath = "/full/path/to/czkawka-duplicates-tools/production/scripts/launch_krusader.sh"
+   ```
+
+## 🗂️ Working Directory Structure
+
+The system automatically creates this structure:
 
 ```bash
-# 1. Test duplicate detection
-./production/scripts/czkawkaDupFind.sh /home/user/test_folder test_scan
+~/tmp/2delete/duplicatesHandling/
+├── duplicate_backups/          # Timestamped backup folders
+│   └── 20250816_143022/       # Automatic backups by session
+├── duplicate_actions.log       # Detailed operation log
+└── duplicate_rollback.json     # Python rollback data
+└── duplicate_rollback.log      # Bash rollback commands
+```
 
-# 2. Test CSV conversion  
-./production/scripts/czkawka_to_table.sh test_scan.json /home/user/test_folder test.csv
+## ✅ Installation Verification
+
+### Test Complete Pipeline
+```bash
+# 1. Test duplicate detection
+./production/scripts/czkawkaDupFind.sh /home/$USER/test_folder test_scan
+
+# 2. Test CSV conversion (replace /home/$USER/test_folder with your path)
+./production/scripts/czkawka_to_table.sh test_scan.json /home/$USER/test_folder test.csv
 
 # 3. Test LibreOffice integration
 # - Open duplicates.ods
 # - Import test.csv at cell B3
-# - Test keyboard shortcuts on a data row
+# - Test keyboard shortcuts on a data row (F3, Ctrl+3, etc.)
 
 # 4. Test Python execution (dry run)
 python3 production/scripts/python/duplicate_executor.py test.csv --dry-run --verbose
 
-# 5. Test rollback capability
-python3 production/scripts/python/rollback_duplicates.py ~/tmp/2delete/duplicatesHandling/duplicate_rollback.json --dry-run
+# 5. Test Bash execution (dry run)
+./production/scripts/execute_duplicate_actions.sh test.csv --dry-run --verbose
 
+# 6. Test rollback capability
+python3 production/scripts/python/rollback_duplicates.py ~/tmp/2delete/duplicatesHandling/duplicate_rollback.json --dry-run
 ```
 
-### **Troubleshooting**
+### Verify File Manager Integration
+```bash
+# Test file managers can be launched
+nemo /home/$USER &
+krusader &  # If installed
 
-**Macro Issues:**
+# Kill test processes
+pkill nemo
+pkill krusader
+```
 
--   Ensure named range "fullData" exists and spans A2:K100000
--   Check macro security settings allow execution
--   Verify keyboard shortcuts are properly assigned
+## 🔧 Troubleshooting
 
-**File Manager Issues:**
+### Common Issues
 
--   Install nemo: `sudo apt install nemo`
--   Test manual launch: `nemo /home/user`
--   For Krusader: `sudo apt install krusader`
+#### Macro Problems
+- **Macros not executing**: Check macro security settings (Medium/Low required)
+- **Named range missing**: Verify "fullData" range exists and spans A2:K100000
+- **Keyboard shortcuts not working**: Re-assign in Tools → Customize → Keyboard
 
-**Script Permissions:**
-
+#### Script Permission Issues
 ```bash
 # Fix if scripts won't execute
 chmod +x production/scripts/*.sh
 chmod +x production/scripts/python/*.py
 
+# Check script syntax
+bash -n production/scripts/czkawkaDupFind.sh
 ```
 
-**Python Issues:**
+#### File Manager Issues
+```bash
+# Install missing file managers
+sudo apt install nemo krusader
 
--   Verify Python 3.6+: `python3 --version`
--   Scripts use only standard library - no additional packages needed
+# Test manual launch
+nemo /tmp
+krusader --left=/tmp --right=/home
+```
 
-## **Ready to Use**
+#### Python Environment Issues
+```bash
+# Verify Python version
+python3 --version  # Should be 3.6+
 
-Once setup is complete, proceed to the Usage Guide for daily workflow procedures.
+# Scripts use only standard library - no pip packages needed
+# If issues persist, try:
+python3 -c "import csv, json, logging, pathlib; print('Python environment OK')"
+```
+
+#### Czkawka Issues
+```bash
+# Verify Czkawka installation
+which linux_czkawka_cli
+linux_czkawka_cli --help
+
+# If snap installation has issues:
+sudo snap refresh czkawka
+```
+
+### Performance Optimization
+
+#### Large Dataset Handling
+- **Memory**: Ensure adequate RAM for LibreOffice with large CSVs
+- **Disk Space**: Backup directory needs space equal to largest files
+- **Processing**: Use filtering to work with data subsets
+
+#### LibreOffice Optimization
+```bash
+# Increase LibreOffice memory allocation
+# Edit: ~/.config/libreoffice/4/user/registrymodifications.xcu
+# Add: <item oor:path="/org.openoffice.Office.Common/Cache">
+#        <prop oor:name="GraphicManager" oor:type="xs:int"><value>128</value></prop>
+#      </item>
+```
+
+## 🚀 Ready to Use
+
+Once setup is complete:
+
+1. **Verify all components** using the test pipeline above
+2. **Create your first scan** with `czkawkaDupFind.sh`
+3. **Process in LibreOffice** using the macro shortcuts
+4. **Execute decisions** with either Python or Bash engine
+5. **Monitor backups** and rollback capabilities
+
+For daily workflow procedures, see: [USAGE.md](USAGE.md)
+
+For detailed LibreOffice macro documentation, see: [LO-help.md](../LO-calc/LO-help.md)
+
+---
+
+**Next Steps**: After successful setup, proceed to the [Usage Guide](USAGE.md) for daily workflow procedures.
 

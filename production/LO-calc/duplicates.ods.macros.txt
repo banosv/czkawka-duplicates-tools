@@ -27,8 +27,8 @@
 ' 3. Assign keyboard shortcuts: Tools → Customize → Keyboard
 '    F3: OpenInNemoFromActiveCell, Alt+F3: OpenInKrusaderFromActiveCell
 '    Ctrl+3: MarkKeepOriginal, Ctrl+4: MarkKeepDuplicate, Ctrl+6: MarkNeedsReview
-'    Alt+3: MarkSoftLinkOriginal, Alt+4: MarkSoftLinkDuplicate
-'    Ctrl+Alt+3: MarkHardLinkOriginal, Ctrl+Alt+4: MarkHardLinkDuplicate
+'    Alt+3: MarkSoftLinkDuplicate, Alt+4: MarkSoftLinkOriginal 
+'    Ctrl+Alt+3: MarkHardLinkDuplicate, Ctrl+Alt+4: MarkHardLinkOriginal
 '    Ctrl+7: ShowStatistics, Ctrl+8: ClearDecisions
 '    Ctrl+9: ToggleFilterByActiveCell, Ctrl+0: ClearFilterState
 ' 4. Install file managers: sudo apt install nemo krusader
@@ -300,22 +300,22 @@ Sub MarkNeedsReview()
     MarkDecision("REVIEW", "REVIEW", "REVIEW_NEEDED", RGB(255, 255, 180), RGB(255, 255, 180))
 End Sub
 
-Sub MarkSoftLinkOriginal()
+Sub MarkSoftLinkDuplicate()
     ' SHORTCUT: Alt+3 - Keep original, soft link duplicate to it
     MarkDecision("YES", "LINK", "SOFTLINK_DUPLICATE", RGB(144, 238, 144), RGB(173, 216, 230))
 End Sub
 
-Sub MarkSoftLinkDuplicate()
+Sub MarkSoftLinkOriginal()
     ' SHORTCUT: Alt+4 - Keep duplicate, soft link original to it
     MarkDecision("LINK", "YES", "SOFTLINK_ORIGINAL", RGB(173, 216, 230), RGB(144, 238, 144))
 End Sub
 
-Sub MarkHardLinkOriginal()
+Sub MarkHardLinkDuplicate()
     ' SHORTCUT: Ctrl+Alt+3 - Keep original, hard link duplicate to it
     MarkDecision("YES", "LINK", "HARDLINK_DUPLICATE", RGB(144, 238, 144), RGB(176, 224, 230))
 End Sub
 
-Sub MarkHardLinkDuplicate()
+Sub MarkHardLinkOriginal()
     ' SHORTCUT: Ctrl+Alt+4 - Keep duplicate, hard link original to it
     MarkDecision("LINK", "YES", "HARDLINK_ORIGINAL", RGB(176, 224, 230), RGB(144, 238, 144))
 End Sub
@@ -539,8 +539,8 @@ End Function
 ' KEYBOARD SHORTCUTS SUMMARY:
 ' F3: OpenInNemoFromActiveCell | Alt+F3: OpenInKrusaderFromActiveCell
 ' Ctrl+3: MarkKeepOriginal | Ctrl+4: MarkKeepDuplicate | Ctrl+6: MarkNeedsReview
-' Alt+3: MarkSoftLinkOriginal | Alt+4: MarkSoftLinkDuplicate
-' Ctrl+Alt+3: MarkHardLinkOriginal | Ctrl+Alt+4: MarkHardLinkDuplicate
+' Alt+3: MarkSoftLinkDuplicate | Alt+4: MarkSoftLinkOriginal
+' Ctrl+Alt+3: MarkHardLinkDuplicate | Ctrl+Alt+4: MarkHardLinkOriginal
 ' Ctrl+7: ShowStatistics | Ctrl+8: ClearDecisions
 ' Ctrl+9: ToggleFilterByActiveCell | Ctrl+0: ClearFilterState
 ' ============================================================================

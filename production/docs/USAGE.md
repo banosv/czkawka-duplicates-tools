@@ -1,10 +1,16 @@
-# Usage Guide - Daily Workflow
+# Daily Workflow - Czkawka Duplicates Tools
 
 Complete reference for the duplicate file management workflow using all pipeline components.
 
-## **Phase 1: Duplicate Detection**
+## 🔄 Complete Workflow Overview
 
-### **Scan for Duplicates**
+```
+Phase 1: Detection → Phase 2: Analysis → Phase 3: Execution → Phase 4: Verification
+```
+
+## Phase 1: Duplicate Detection
+
+### Scan for Duplicates
 ```bash
 # Interactive mode (recommended for beginners)
 ./production/scripts/czkawkaDupFind.sh
@@ -12,230 +18,161 @@ Complete reference for the duplicate file management workflow using all pipeline
 # Direct command with parameters
 ./production/scripts/czkawkaDupFind.sh /path/to/scan output_name
 
-# Format options:
-# -p (default): JSON format for pipeline processing
-# -f: Human-readable text format
-
+# Format options: -p (JSON, default) or -f (human-readable text)
 ```
 
 **Example:**
-
 ```bash
 ./production/scripts/czkawkaDupFind.sh /home/user/Documents docs_scan
 # Creates: docs_scan.json
-
 ```
 
-### **Convert to Analysis Format**
-
+### Convert to Analysis Format
 ```bash
 # Interactive mode
 ./production/scripts/czkawka_to_table.sh
 
 # Direct command  
 ./production/scripts/czkawka_to_table.sh scan.json /main/folder output.csv
-
 ```
 
 **Example:**
-
 ```bash
 ./production/scripts/czkawka_to_table.sh docs_scan.json /home/user/Documents docs_analysis.csv
-# Creates CSV with files from Documents folder prioritized
-
+# Creates CSV with Documents folder files prioritized
 ```
 
-## **Phase 2: Analysis & Decision Making**
+## Phase 2: Analysis & Decision Making
 
-### **LibreOffice Workflow**
+### LibreOffice Workflow
 
-#### **Data Import**
+#### Data Import Process
+1. Open `production/LO-calc/duplicates.ods`
+2. **Import CSV at cell B3** (preserves headers in Row 2)
+3. (optional) Sort by Size column (F) to prioritize large duplicates or sort by other column or criteria
+4. Verify data spans the predefined named range
 
-1.  Open `production/LO-calc/duplicates.ods`
-2.  **Import CSV at cell B3** (critical - not A1!)
-3.  Sort by Size column (F) to prioritize large duplicates
-4.  Verify named range covers all data
+#### File Comparison & Decision Making
+[In the spreadsheet structure left is considered as original - right as duplicates]
+| Action | Shortcut | Result | Use Case |
+|--------|----------|--------|----------|
+| **View Files** | F3 / Alt+F3 | Open both locations in file manager | Compare file quality/location |
+| **Keep Original** | Ctrl+3 | 🟢 Green = Keep, 🔴 Red = Delete | Original is better |
+| **Keep Duplicate** | Ctrl+4 | 🔴 Red = Delete, 🟢 Green = Keep | Duplicate is better |
+| **Soft Link** | Alt+3 / Alt+4 | 🟢 Keep, 🔵 Blue = Link | Save space, preserve paths |
+| **Hard Link** | Ctrl+Alt+3/4 | 🟢 Keep, 🔷 Teal = Hard Link | Same filesystem only |
+| **Review Later** | Ctrl+6 | 🟡 Yellow = Review | Need more analysis |
 
-#### **File Comparison**
+*Full macro documentation: [LO-help.md](../LO-calc/LO-help.md)*
 
-|Action| Result |
-|--|--|
-| **F3** (Nemo) |Open both file locations in tabs  |
-|**Alt+F3** (Krusader)|Open both files in dual-pane view|
+#### Progress Management
+| Shortcut | Function | Purpose |
+|----------|----------|---------|
+| **Ctrl+7** | Show Statistics | Check completion percentage |
+| **Ctrl+9** | Toggle Filter by Active Cell | Focus on specific criteria |
+| **Ctrl+0** | Clear Filters | Show all data again |
+| **Ctrl+8** | Clear Decisions | Reset selected rows |
 
-#### **Decision Making**
-|Shortcut  | Action |Color Code|Use Case|
-|--|--|--|--|
-|**Ctrl+3**  |Keep Original  |🟢 Green = Keep, 🔴 Red = Delete|Original is better quality/location |
-|**Ctrl+4**|Keep Duplicate|🔴 Red = Delete, 🟢 Green = Keep|Duplicate is better quality/location|
-|**Ctrl+6**|Review Later|🟡 Yellow = Review|Need more analysis|
-|**Alt+3**|Soft Link Duplicate→Original|🟢 Green = Keep, 🔵 Blue = Link|Preserve paths, save space|
-|**Alt+4**|Soft Link Original→Duplicate|🔵 Blue = Link, 🟢 Green = Keep|Preserve paths, save space|
-|**Ctrl+Alt+3**|Hard Link Duplicate→Original|🟢 Green = Keep, 🔷 Teal = Hard Link|Same filesystem, save space|
-|**Ctrl+Alt+4**|Hard Link Original→Duplicate|🔷 Teal = Hard Link, 🟢 Green = Keep|Same filesystem, save space|
+#### Export Decisions
+1. Filter by Action column to review cleanup plan
+2. Resolve any "REVIEW_NEEDED" items and finalize decisions
+4. Export to CSV: **File → Save As → CSV**
+5. Save as `decisions.csv` for execution phase
 
-#### **Progress Management**
-| Shortcut | Function |Usage|
-|--|--|--|
-|**Ctrl+7**|Show Statistics|Check progress: processed/total, completion %|
-|**Ctrl+9**|Filter by Cell|Click any cell, filter by its content|
-|**Ctrl+0**|Clear Filters|Show all rows again|
-|**Ctrl+8**|Clear Decisions|Reset selected rows (undo mistakes)|
+## Phase 3: Automated Execution
 
-#### **Export Decisions**
+### Choose Your Execution Engine
 
-1.  Filter by Action column to review cleanup plan
-2.  Address any "REVIEW_NEEDED" items
-3.  Export to CSV: **File → Save As → CSV**
-4.  Save as `decisions.csv` for execution phase
-
-## **Phase 3: Automated Execution**
-
-### **Python Script Execution**
-
-#### **Dry Run (Always Test First)**
-
+#### Python Engine (Recommended - Cross-Platform)
 ```bash
+# Always test first
 python3 production/scripts/python/duplicate_executor.py decisions.csv --dry-run --verbose
 
-```
-
--   Shows exactly what will happen
--   No files are modified
--   Detailed operation preview
-
-#### **Execute Real Operations**
-
-```bash
+# Execute real operations
 python3 production/scripts/python/duplicate_executor.py decisions.csv --verbose
-
 ```
 
-#### **Bash Script Alternative**
-
+#### Bash Engine (Linux Performance)
 ```bash
-# Equivalent bash implementation
-./production/scripts/execute_duplicate_actions.sh decisions.csv --dry-run
+# Always test first
+./production/scripts/execute_duplicate_actions.sh decisions.csv --dry-run --verbose
+
+# Execute real operations
 ./production/scripts/execute_duplicate_actions.sh decisions.csv --verbose
-
 ```
 
-### **Operation Types**
-| CSV Action |Script Behavior  |Safety|
-|--|--|--|
-|`DELETE_ORIGINAL`|Delete original, keep duplicate|✅ Backup created|
-|`DELETE_DUPLICATE`|Delete duplicate, keep original|✅ Backup created|
-|`DELETE_BOTH`|Delete both files|⚠️ Backup both files|
-|`SOFTLINK_ORIGINAL`|Keep duplicate, soft link original→duplicate|✅ Backup original|
-|`SOFTLINK_DUPLICATE`|Keep original, soft link duplicate→original|✅ Backup duplicate|
-|`HARDLINK_ORIGINAL`|Keep duplicate, hard link original→duplicate|✅ Backup original|
-|`HARDLINK_DUPLICATE`|Keep original, hard link duplicate→original|✅ Backup duplicate|
+### Operation Types & Safety
+| CSV Action | Script Behavior | Safety Features |
+|------------|-----------------|-----------------|
+| `DELETE_ORIGINAL` | Delete original, keep duplicate | ✅ Backup created |
+| `DELETE_DUPLICATE` | Delete duplicate, keep original | ✅ Backup created |
+| `SOFTLINK_*` | Create symbolic link | ✅ Backup original file |
+| `HARDLINK_*` | Create hard link (same filesystem) | ✅ Backup + filesystem check |
 
+### Execution Monitoring
+- **Live Progress**: Row-by-row processing with status
+- **Statistics**: Counts for each operation type  
+- **Error Handling**: Failed operations logged, execution continues
+- **Backup Location**: `~/tmp/2delete/duplicatesHandling/duplicate_backups/[TIMESTAMP]/`
 
-### **Execution Monitoring**
+## Phase 4: Rollback & Recovery
 
--   **Live Progress:** Row-by-row processing with status
--   **Statistics:** Counts for each operation type
--   **Error Handling:** Failed operations logged, execution continues
--   **Backup Location:** `~/tmp/2delete/duplicatesHandling/duplicate_backups/[TIMESTAMP]/`
-
-## **Phase 4: Rollback & Safety**
-
-### **Automatic Rollback Data**
-
-Every execution creates rollback data:
-
--   **Location:** `~/tmp/2delete/duplicatesHandling/duplicate_rollback.json`
--   **Contains:** All operation details + backup file locations
--   **Format:** Machine-readable JSON with timestamps
-
-### **Rollback Operations**
-
-#### **Full Rollback**
-
+### Python Rollback System
 ```bash
+# Full rollback
 python3 production/scripts/python/rollback_duplicates.py ~/tmp/2delete/duplicatesHandling/duplicate_rollback.json --dry-run
-python3 production/scripts/python/rollback_duplicates.py ~/tmp/2delete/duplicatesHandling/duplicate_rollback.json
 
-```
-
-#### **Selective Rollback**
-
-```bash
-# Only rollback delete operations
+# Selective rollback by operation type
 python3 production/scripts/python/rollback_duplicates.py rollback.json --operation-type delete
 
-# Only rollback operations after specific time
+# Rollback operations after specific time
 python3 production/scripts/python/rollback_duplicates.py rollback.json --after 2025-08-15T14:00:00
-
-# Only rollback specific operation types
-python3 production/scripts/python/rollback_duplicates.py rollback.json --operation-type softlink --operation-type hardlink
-
 ```
 
-### **Manual Rollback (Bash)**
-
-For bash script operations, rollback commands are in: `~/tmp/2delete/duplicatesHandling/duplicate_rollback.log`
-
-## **Advanced Workflows**
-
-### **Large Dataset Processing**
-
-1.  **Sort by size** (column F) - process largest duplicates first
-2.  **Filter by path** (Ctrl+9) - handle one folder at a time
-3.  **Partial execution** - export subsets, execute in batches
-4.  **Statistics monitoring** (Ctrl+7) - track progress regularly
-
-### **Cross-Device File Management**
-
--   Hard links automatically detect filesystem boundaries
--   Cross-device hard links skipped with warning
--   Soft links work across any filesystem
--   Delete operations work universally
-
-### **Batch Processing Example**
-
+### Bash Rollback System
 ```bash
-# Process multiple scan results
-for scan in *.json; do
-    ./production/scripts/czkawka_to_table.sh "$scan" /main/folder "${scan%.*}.csv"
-done
-
-# Execute all decision files
-for decisions in *_decisions.csv; do
-    python3 production/scripts/python/duplicate_executor.py "$decisions" --verbose
-done
-
+# Direct execution of rollback commands
+bash ~/tmp/2delete/duplicatesHandling/duplicate_rollback.log
 ```
 
-## **Troubleshooting**
+## 🎯 Best Practices
 
-### **LibreOffice Issues**
+### Workflow Optimization
+1. **Sort by file size** (column F) - process largest duplicates first
+2. **Filter by path** (Ctrl+9) - handle one folder at a time  
+3. **Use statistics** (Ctrl+7) - track progress regularly
+4. **Always dry-run first** - test before real execution
+5. **Keep rollback data** - until satisfied with results
 
--   **Macro not working:** Check macro security settings, verify named range exists
--   **Shortcuts not working:** Re-assign in Tools → Customize → Keyboard
--   **File managers won't open:** Install nemo/krusader, check paths in macro
+### Large Dataset Processing
+- **Partial execution**: Export filtered subsets, execute in batches
+- **Progress monitoring**: Statistics show completion percentage
+- **Memory management**: Process in chunks for very large datasets
 
-### **Execution Issues**
+### Cross-Device Considerations
+- **Hard links**: Automatically detect filesystem boundaries
+- **Soft links**: Work across any filesystem
+- **Delete operations**: Work universally
 
--   **Permission denied:** Check file/directory write permissions
--   **Cross-device hard link:** Use soft link instead, or copy + delete
--   **File not found:** Verify CSV paths are absolute and current
+## 🚨 Troubleshooting
 
-### **Rollback Issues**
+### LibreOffice Issues
+- **Macros not working**: Check security settings, verify named range exists
+- **File managers won't open**: Install nemo/krusader, check macro paths
+- **CSV import problems**: Import at B3, not A1 or B1
 
--   **Backup not found:** Check if backups were created (dry-run mode doesn't create backups)
--   **Cannot restore:** Verify target directory permissions and free space
+### Execution Issues  
+- **Permission denied**: Check file/directory write permissions
+- **Cross-device hard link**: Script will skip with warning, use soft link instead
+- **File not found**: Verify CSV paths are absolute and files exist
 
-## **Best Practices**
+### Recovery Issues
+- **Backup not found**: Verify backups were created (dry-run doesn't create backups)
+- **Cannot restore**: Check target directory permissions and available disk space
 
-1.  **Always test with --dry-run first**
-2.  **Process large files first** (sort by size)
-3.  **Review statistics regularly** (Ctrl+7)
-4.  **Keep rollback data** until satisfied with results
-5.  **Filter by criteria** to focus on specific areas
-6.  **Export filtered decisions** for targeted cleanup
-7.  **Monitor disk space** during operations
+---
 
-This completes your daily workflow reference. The pipeline provides comprehensive safety and flexibility for any duplicate file management scenario.
+**Pipeline Summary**: Detection → Analysis → Execution → Verification  
+**Safety First**: Always use `--dry-run` before real operations
+
 

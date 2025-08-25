@@ -1,21 +1,32 @@
 # Czkawka Duplicate Tools - LO-Macro Shortcuts
 
-## Core Workflow Shortcuts
-| Shortcut      | Action                                  | Color Coding     |
-|---------------|-----------------------------------------|------------------|
-| **F3**        | Open both files in file manager         | N/A              |
-| **Ctrl+3**    | Keep original file                      | Green (144,238,144) |
-| **Ctrl+4**    | Keep duplicate file                     | Green (144,238,144) |
-| **Ctrl+6**    | Mark for review                         | Yellow (255,255,180) |
+### File Manager Integration
+| Shortcut | Function | Description |
+|----------|----------|-------------|
+| **F3** | OpenInNemoFromActiveCell | Nemo → Krusader → System fallback |
+| **Alt+F3** | OpenInKrusaderFromActiveCell | Krusader → Nemo → System fallback |
 
-## Utility Shortcuts
-| Shortcut      | Action                          |
-|---------------|---------------------------------|
-| **Ctrl+7**    | Show decision statistics        |
-| **Ctrl+8**    | Clear selected decisions        |
-| **Ctrl+9**    | Filter by action type           |
+### Basic Decision Marking
+| Shortcut | Function | Colors | Action Generated |
+|----------|----------|--------|------------------|
+| **Ctrl+3** | MarkKeepOriginal | 🟢 Green / 🔴 Red | DELETE_DUPLICATE |
+| **Ctrl+4** | MarkKeepDuplicate | 🔴 Red / 🟢 Green | DELETE_ORIGINAL |
+| **Ctrl+6** | MarkNeedsReview | 🟡 Yellow | REVIEW_NEEDED |
 
-## Confirmed Sources
-- Header of `duplicates.ods.macros.txt` (F3, Ctrl+3/4/6)
-- Footer of `duplicates.ods.macros.txt` (Ctrl+7/8/9)
-- No unverified shortcuts included
+### Advanced Linking Options
+| Shortcut | Function | Colors | Action Generated |
+|----------|----------|--------|------------------|
+| **Alt+3** |MarkSoftLinkDuplicate  | 🟢 Green / 🔵 Blue | SOFTLINK_DUPLICATE |
+| **Alt+4** | MarkSoftLinkOriginal | 🔵 Blue / 🟢 Green | SOFTLINK_ORIGINAL |
+| **Ctrl+Alt+3** | MarkHardLinkDuplicate | 🟢 Green / 🔷 Teal | HARDLINK_DUPLICATE |
+| **Ctrl+Alt+4** | MarkHardLinkOriginal | 🔷 Teal / 🟢 Green | HARDLINK_ORIGINAL |
+
+### Utility Functions
+| Shortcut | Function | Description |
+|----------|----------|-------------|
+| **Ctrl+7** | ShowStatistics | Progress tracking with completion % |
+| **Ctrl+8** | ClearDecisions | Reset selected rows (skips protected rows) |
+| **Ctrl+9** | ToggleFilterByActiveCell | Smart filter by cell content |
+| **Ctrl+0** | ClearFilterState | Clear all active filters |
+
+
